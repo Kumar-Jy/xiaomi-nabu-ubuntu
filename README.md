@@ -188,7 +188,7 @@ sudo snap install localsend
 1. **Kernel Boot / Black Screen (Samsung UFS):**
    Some Pad 5 units use Samsung UFS chips which can be timing-sensitive on certain mainline kernels.
    - If a kernel hangs on boot for more than 30 seconds, hold the **Power Button** for 10 seconds to reboot.
-   - The installer includes stable fallback kernels (`6.14.11` and `6.17-UFS-slowdown+`). Select a fallback in rEFInd if needed.
+   - The installer ships with the latest optimized kernel 7.3 (`linux-image-7.3*`). Additional kernels can be installed via `nabu-pkgs`.
 2. **Kernel Upgrade / dpkg crash (`kdump-tools` / `/dev/root`):**
    - Run `sudo apt purge -y kdump-tools makedumpfile crash && sudo dpkg --configure -a`. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#1-kernel-upgrade--installation-errors-kdump-tools--devroot) for permanent fix.
 3. **Sensors / Auto-Rotation / Auto-Brightness:**

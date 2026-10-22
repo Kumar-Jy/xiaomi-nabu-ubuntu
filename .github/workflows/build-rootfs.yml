@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Build Dependencies
         run: |
@@ -75,6 +75,8 @@ jobs:
           sudo chmod +x rootdir/etc/kernel/postrm.d/zz-remove-uki
 
           # Bind Mounts
+          sudo mkdir -p rootdir/boot/efi
+          sudo mount -o size=512M,mode=0755 -t tmpfs none rootdir/boot/efi
           sudo mount --bind /dev rootdir/dev
           sudo mount --bind /dev/pts rootdir/dev/pts
           sudo mount --bind /proc rootdir/proc
@@ -125,9 +127,9 @@ jobs:
           apt install -y xiaomi-nabu-alsa xiaomi-nabu-firmware
           apt install -y hexagonrpcd libssc iio-sensor-proxy || true
           apt install -y nabu-tablet-mode nabu-autobrightness nabu-torch nabu-pmac || true
-          apt install -y libcamera-tools gstreamer1.0-libcamera v4l-utils || true
+          apt install -y libcamera-tools gstreamer1.0-libcamera libspa-0.2-libcamera v4l-utils || true
+          apt install -y gnome-software gnome-software-plugin-snap || true
           apt install -y 'linux-image-7.3*' 'linux-headers-7.3*'
-          apt install -y xiaomi-nabu-linux-6.17 || true
           apt install -y zram-config
           apt install -y $EXTRA_PACKAGES
           apt --fix-broken install -y
@@ -149,7 +151,11 @@ jobs:
           sed -i '/ConditionKernelVersion/d' /lib/systemd/system/pd-mapper.service
           sed -i '/^totalmem/ s/^/#/' /usr/bin/init-zram-swapping
           sed -i '/^mem/ s/.*/#&\nmem=10GiB/' /usr/bin/init-zram-swapping
+
+          # Clean up unused non-Qualcomm firmware blobs and apt cache to reduce rootfs size
+          rm -rf /lib/firmware/{intel,nvidia,amdgpu,mediatek,radeon,cirrus,brcm,ti-connectivity,i915,mrvl} 2>/dev/null || true
           apt clean
+          rm -rf /var/lib/apt/lists/*
 
           # Enable hardware services
           systemctl enable bluetooth || true
@@ -159,6 +165,7 @@ jobs:
           systemctl enable nabu-tablet-mode.service || true
           systemctl enable nabu-autobrightness.service || true
           systemctl enable iio-sensor-proxy.service || true
+          systemctl enable rmtfs.service tqftpserv.service pd-mapper.service || true
           EOF
 
           # fstab (keeping commented lines)
@@ -166,11 +173,16 @@ jobs:
           #PARTLABEL=esp /boot/efi vfat umask=0077 0 1
           #PARTLABEL=data /media/data ext4 defaults 0 2" | sudo tee rootdir/etc/fstab
 
-          # Export EFI files from /boot before unmounting
+          # Export EFI files from /boot/efi or /boot before unmounting
           mkdir -p ./exported-efi
-          sudo cp rootdir/boot/*.efi ./exported-efi/ 2>/dev/null || echo "No EFI files found in /boot"
+          if [ -d "rootdir/boot/efi/EFI/Ubuntu" ]; then
+            sudo cp -a rootdir/boot/efi/EFI/Ubuntu/*.efi ./exported-efi/ 2>/dev/null || true
+          fi
+          sudo cp -a rootdir/boot/*.efi ./exported-efi/ 2>/dev/null || true
+          sudo chown -R $USER:$USER ./exported-efi 2>/dev/null || true
 
           # Cleanup mounts
+          sudo umount rootdir/boot/efi
           sudo umount rootdir/sys
           sudo umount rootdir/proc
           sudo umount rootdir/dev/pts
@@ -191,7 +203,13 @@ jobs:
           cp -r ./efi-template/EFI/* ./efi/
           mkdir -p ./efi/Ubuntu
           if [ -d "./exported-efi" ] && [ -n "$(ls -A ./exported-efi 2>/dev/null)" ]; then
-            cp ./exported-efi/*.efi ./efi/Ubuntu/
+            cp -a ./exported-efi/*.efi ./efi/Ubuntu/
+          fi
+
+          # Verify that UKI was generated
+          if ! ls ./efi/Ubuntu/*.efi >/dev/null 2>&1; then
+            echo "::error::No kernel EFI (UKI) generated for Ubuntu! Aborting build."
+            exit 1
           fi
 
           # 3. Create ESP partition image (ESPNABU FAT32)
@@ -199,7 +217,8 @@ jobs:
           mkfs.fat -F 32 -S 4096 -s 1 -n ESPNABU ./images/esp.img
           mkdir -p ./esp-mount
           sudo mount -o loop ./images/esp.img ./esp-mount/
-          sudo cp -r ./efi/* ./esp-mount/
+          sudo mkdir -p ./esp-mount/EFI
+          sudo cp -r ./efi/* ./esp-mount/EFI/
           sudo umount ./esp-mount
           rmdir ./esp-mount
 
@@ -213,7 +232,7 @@ jobs:
           chmod +x flash-linux.sh
 
       - name: Upload Installer Artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: ubuntu-nabu-installer
           path: |
