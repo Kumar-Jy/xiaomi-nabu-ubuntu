@@ -11,6 +11,14 @@ on:
         description: 'Additional packages to install'
         required: false
         default: ''
+      trigger_release:
+        description: 'Also create/update GitHub release after build'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  actions: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -231,6 +239,19 @@ jobs:
           cp ./fastboot-script/flash-linux.sh .
           chmod +x flash-linux.sh
 
+      - name: Upload rEFInd Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: nabu-ubuntu-rEFInd
+          path: |
+            bin
+            DBKP
+            efi
+            installer
+            META-INF
+          retention-days: 90
+          compression-level: 5
+
       - name: Upload Installer Artifact
         uses: actions/upload-artifact@v7
         with:
@@ -246,3 +267,19 @@ jobs:
             META-INF
           retention-days: 90
           compression-level: 5
+
+  trigger-release:
+    if: ${{ github.event.inputs.trigger_release == 'true' || github.event.inputs.trigger_release == true }}
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Trigger create-release workflow
+        run: |
+          gh workflow run "Create Installer Release" \
+            --repo ${{ github.repository }} \
+            --ref ${{ github.ref_name }} \
+            -f run_id=${{ github.run_id }}

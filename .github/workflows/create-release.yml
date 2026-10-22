@@ -1,0 +1,155 @@
+name: Create Installer Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Build run ID (empty = auto-detect latest)"
+        type: string
+        required: false
+  workflow_call:
+    inputs:
+      run_id:
+        type: string
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  create-release:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Resolve run ID
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN_ID="${{ inputs.run_id }}"
+          if [ -z "$RUN_ID" ]; then
+            echo "Auto-detecting latest successful build run..."
+            RUN_ID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/workflows/build-rootfs.yml/runs?branch=${{ github.ref_name }}&status=success&per_page=1" \
+              | jq -r '.workflow_runs[0].id // ""')
+          fi
+          if [ -z "$RUN_ID" ]; then
+            echo "No run ID provided or auto-detected." >&2
+            exit 1
+          fi
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+          echo "Using run ID: $RUN_ID"
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq zip curl
+
+      - name: Prepare release assets and notes
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN_ID="${{ steps.resolve.outputs.run_id }}"
+          REPO="${{ github.repository }}"
+          BRANCH="${{ github.ref_name }}"
+          [ -z "$BRANCH" ] && BRANCH="main"
+
+          CREATED=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID" \
+            | jq -r '.created_at // ""')
+          BUILD_DATE=$(date -d "$CREATED" +%d.%m.%Y 2>/dev/null || date +%d.%m.%Y)
+
+          mkdir -p release-files
+
+          # 1. Download rEFInd artifact if available, or build from repo
+          if curl -sI "https://nightly.link/$REPO/actions/runs/$RUN_ID/nabu-ubuntu-rEFInd.zip" | grep -q "200\|302"; then
+            echo "Downloading nabu-ubuntu-rEFInd.zip from build run..."
+            curl -fL "https://nightly.link/$REPO/actions/runs/$RUN_ID/nabu-ubuntu-rEFInd.zip" -o release-files/nabu-ubuntu-rEFInd.zip
+          else
+            echo "Packaging rEFInd from repository templates..."
+            mkdir -p ./tmp-refind
+            cp -r bin DBKP installer META-INF ./tmp-refind/ 2>/dev/null || true
+            mkdir -p ./tmp-refind/efi
+            cp -r efi-template/EFI/* ./tmp-refind/efi/ 2>/dev/null || true
+            (cd ./tmp-refind && zip -r9 ../release-files/nabu-ubuntu-rEFInd.zip .)
+            rm -rf ./tmp-refind
+          fi
+
+          # 2. Generate get-ubuntu.sh download script
+          NL_URL="https://nightly.link/$REPO/actions/runs/$RUN_ID/ubuntu-nabu-installer.zip"
+          cat > release-files/get-ubuntu.sh << 'EOF_GET'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          EOF_GET
+          echo "NL_URL=\"$NL_URL\"" >> release-files/get-ubuntu.sh
+          cat >> release-files/get-ubuntu.sh << 'EOF_SCRIPT'
+          echo "Downloading Ubuntu 26.04 installer for Xiaomi Pad 5 (nabu)..."
+          echo "URL: $NL_URL"
+          curl -fL "$NL_URL" -o ubuntu-nabu-installer.zip
+          echo "Successfully downloaded: ubuntu-nabu-installer.zip"
+          EOF_SCRIPT
+          sed -i 's/^[ \t]*//' release-files/get-ubuntu.sh
+          chmod +x release-files/get-ubuntu.sh
+
+          # 3. Generate Release Notes
+          cat > release-notes.md << BODY
+          # 🚀 Ubuntu 26.04 (Resolute) for Xiaomi Pad 5 (nabu)
+
+          > **Build Date:** $BUILD_DATE &nbsp;|&nbsp; **Target Device:** Xiaomi Pad 5 (\`nabu\`) &nbsp;|&nbsp; **Kernel:** Linux 7.3 (\`linux-image-7.3.0-krjy\`)
+
+          🔗 **Documentation & Project Links:**
+          - 📜 **[README.md](https://github.com/$REPO/blob/$BRANCH/README.md)** — Full installation & flashing instructions
+          - 📖 **[Troubleshooting Guide](https://github.com/$REPO/blob/$BRANCH/TROUBLESHOOTING.md)** — Hardware, sensors & display fixes
+          - 📦 **[Kernel Packages](https://github.com/Kumar-Jy/nabu-pkgs/releases/tag/ubuntu)** — APT repository for kernel & firmware
+
+          ---
+
+          ## 📥 Installer Downloads
+
+          | Desktop Edition | Direct Download (nightly.link) |
+          | :--- | :--- |
+          | **Ubuntu GNOME Desktop (26.04)** | [📥 Download Ubuntu Installer ZIP](${NL_URL}) |
+
+          > **Attached Release Assets:**
+          > - \`nabu-ubuntu-rEFInd.zip\` — Multi-boot UEFI bootloader only (TWRP flashable)
+          > - \`get-ubuntu.sh\` — Direct CLI download script (\`curl -fL ...\`)
+
+          ---
+
+          ## 🔑 User Account & Setup
+          - **First-Boot Setup:** Boots directly into Ubuntu Initial Setup wizard where you can configure language, Wi-Fi, username, and password.
+          - **Root (sudo) Access:** Use your configured user password for administrative tasks.
+
+          ---
+
+          ## 🛠️ Quick Installation Guide
+
+          ### Method 1: Fastboot (PC / OTG)
+          1. Reboot tablet into Fastboot mode (\`Power + Volume Down\`).
+          2. Extract \`ubuntu-nabu-installer.zip\`.
+          3. Run \`./flash-linux.sh\` (Linux/macOS) or \`flash-linux.bat\` (Windows).
+
+          ### Method 2: Hybrid-TWRP (On-Device)
+          1. Boot into [Hybrid-TWRP](https://github.com/Kumar-Jy/twrp_device_xiaomi_nabu/releases/tag/mod-hybrid).
+          2. If not partitioned, open **Advanced > Terminal** and run \`partition\`.
+          3. Copy \`ubuntu-nabu-installer.zip\` to tablet, tap **Install**, and swipe to flash.
+          4. Reboot to System.
+          BODY
+          sed -i 's/^[ \t]*//' release-notes.md
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="ubuntu-nabu"
+          TITLE="Ubuntu 26.04 for Xiaomi Pad 5 ($(date +%d.%m.%Y))"
+
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          sleep 2
+
+          gh release create "$TAG" \
+            release-files/* \
+            --title "$TITLE" \
+            --notes-file release-notes.md
