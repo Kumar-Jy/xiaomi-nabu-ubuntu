@@ -1,0 +1,3 @@
+Package: kdump-tools makedumpfile kexec-tools crash
+Pin: release *
+Pin-Priority: -1

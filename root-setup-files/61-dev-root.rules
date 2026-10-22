@@ -1,0 +1,2 @@
+# Create /dev/root symlink for the root partition labeled 'linux'
+ACTION=="add|change", SUBSYSTEM=="block", ENV{PARTNAME}=="linux", SYMLINK+="root"

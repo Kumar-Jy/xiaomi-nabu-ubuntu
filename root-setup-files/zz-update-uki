@@ -1,0 +1,118 @@
+#!/bin/bash
+set -e
+
+# Version and Image passed by kernel postinst
+KVER="${1:-}"
+KERNEL_IMG="${2:-/boot/vmlinuz-$KVER}"
+
+if [ -z "$KVER" ]; then
+    exit 0
+fi
+
+UKIFY_BIN=$(command -v ukify || true)
+if [ -z "$UKIFY_BIN" ]; then
+    echo "Notice (zz-update-uki): ukify not found. Skipping UKI generation."
+    exit 0
+fi
+
+# Avoid running on intermediate triggers if DEB_MAINT_PARAMS is present
+if [ -n "${DEB_MAINT_PARAMS-}" ]; then
+    eval set -- "$DEB_MAINT_PARAMS"
+    if [ -n "${1-}" ] && [ "$1" != "configure" ]; then
+        exit 0
+    fi
+fi
+
+# Determine root partition label
+ROOT_LABEL="linux"
+if command -v findmnt >/dev/null 2>&1 && command -v lsblk >/dev/null 2>&1; then
+    DETECTED_LABEL=$(lsblk -no PARTLABEL "$(findmnt -no SOURCE / 2>/dev/null)" 2>/dev/null || true)
+    if [ -n "$DETECTED_LABEL" ]; then
+        ROOT_LABEL="$DETECTED_LABEL"
+    fi
+fi
+
+CMDLINE="root=PARTLABEL=$ROOT_LABEL rw fw_devlink=permissive"
+
+# Locate Device Tree (DTB)
+DTB_FILE="/boot/dtb-$KVER"
+if [ ! -f "$DTB_FILE" ]; then
+    PKG_DTB=$(find "/usr/lib/linux-image-$KVER" -name "sm8150-xiaomi-nabu.dtb" 2>/dev/null | head -n 1)
+    if [ -n "$PKG_DTB" ] && [ -f "$PKG_DTB" ]; then
+        echo "zz-update-uki: Copying DTB from $PKG_DTB to $DTB_FILE"
+        cp "$PKG_DTB" "$DTB_FILE"
+    fi
+fi
+
+CLEAN_KVER="${KVER//-xiaomi-nabu-tmm/}"
+OUTPUT_EFI="${CLEAN_KVER}.efi"
+TMP_DIR=$(mktemp -d)
+TMP_EFI="$TMP_DIR/$OUTPUT_EFI"
+
+echo "zz-update-uki: Generating UKI for kernel $KVER ($OUTPUT_EFI)..."
+
+UKIFY_ARGS=(
+    build
+    --linux "$KERNEL_IMG"
+    --cmdline "$CMDLINE"
+    --uname "$KVER"
+    --output "$TMP_EFI"
+)
+
+if [ -f "$DTB_FILE" ]; then
+    UKIFY_ARGS+=(--devicetree "$DTB_FILE")
+fi
+
+if [ -f "/boot/initrd.img-$KVER" ]; then
+    UKIFY_ARGS+=(--initrd "/boot/initrd.img-$KVER")
+fi
+
+"$UKIFY_BIN" "${UKIFY_ARGS[@]}"
+
+# Copy to ESP partition if available
+COPIED=false
+
+# 1. Check if /boot/efi is already mounted
+if mountpoint -q /boot/efi 2>/dev/null; then
+    mkdir -p /boot/efi/EFI/Ubuntu
+    cp "$TMP_EFI" "/boot/efi/EFI/Ubuntu/$OUTPUT_EFI"
+    sync "/boot/efi/EFI/Ubuntu/$OUTPUT_EFI" 2>/dev/null || true
+    COPIED=true
+    echo "zz-update-uki: Successfully installed $OUTPUT_EFI to mounted ESP (/boot/efi/EFI/Ubuntu/)."
+fi
+
+# 2. If not mounted, probe for ESP partition candidates
+if [ "$COPIED" = false ]; then
+    ESP_PART=""
+    for cand in /dev/disk/by-partlabel/esp /dev/disk/by-partlabel/ESPNABU /dev/disk/by-label/ESPNABU /dev/disk/by-label/esp /dev/sda31; do
+        if [ -b "$cand" ]; then
+            ESP_PART="$cand"
+            break
+        fi
+    done
+
+    if [ -n "$ESP_PART" ]; then
+        MNT_TMP=$(mktemp -d)
+        for i in 1 2 3; do
+            if mount "$ESP_PART" "$MNT_TMP" 2>/dev/null; then
+                mkdir -p "$MNT_TMP/EFI/Ubuntu"
+                cp "$TMP_EFI" "$MNT_TMP/EFI/Ubuntu/$OUTPUT_EFI"
+                sync "$MNT_TMP/EFI/Ubuntu/$OUTPUT_EFI" 2>/dev/null || true
+                umount "$MNT_TMP"
+                COPIED=true
+                echo "zz-update-uki: Successfully installed $OUTPUT_EFI to ESP partition $ESP_PART (EFI/Ubuntu/)."
+                break
+            fi
+            sleep 1
+        done
+        rm -rf "$MNT_TMP"
+    fi
+fi
+
+if [ "$COPIED" = false ]; then
+    echo "zz-update-uki: ESP partition not available. Saving $OUTPUT_EFI to /boot/."
+    cp "$TMP_EFI" "/boot/$OUTPUT_EFI"
+fi
+
+rm -rf "$TMP_DIR"
+exit 0

@@ -10,23 +10,24 @@ if [ -z "$KVER" ]; then
 fi
 
 # 2. Dynamically determine Root Partition Label
-ROOT_LABEL=$(lsblk -no PARTLABEL $(findmnt -no SOURCE /))
-
-if [ -z "$ROOT_LABEL" ]; then
-    echo "Warning: Could not find PARTLABEL for /. Using 'linux' as fallback."
-    ROOT_LABEL="linux"
+ROOT_LABEL="linux"
+if command -v findmnt >/dev/null 2>&1 && command -v lsblk >/dev/null 2>&1; then
+    DETECTED_LABEL=$(lsblk -no PARTLABEL "$(findmnt -no SOURCE / 2>/dev/null)" 2>/dev/null || true)
+    if [ -n "$DETECTED_LABEL" ]; then
+        ROOT_LABEL="$DETECTED_LABEL"
+    fi
 fi
 
 # 3. Format the EFI filename and command line
 CLEAN_KVER="${KVER//-xiaomi-nabu-tmm/}"
-OUTPUT_EFI="${CLEAN_KVER}-${ROOT_LABEL}.efi"
-CMDLINE="root=PARTLABEL=$ROOT_LABEL ro fw_devlink=permissive"
+OUTPUT_EFI="${CLEAN_KVER}.efi"
+CMDLINE="root=PARTLABEL=$ROOT_LABEL rw fw_devlink=permissive"
 
 BOOT_DIR="/boot"
 KERNEL_IMG="$BOOT_DIR/vmlinuz-$KVER"
 DTB_FILE="$BOOT_DIR/dtb-$KVER"
 
-UKIFY_BIN=$(which ukify)
+UKIFY_BIN=$(command -v ukify || true)
 
 # 4. Print full details in the requested format
 echo "Post-install: Generating UKI..."
@@ -36,47 +37,76 @@ echo " - Output:  $OUTPUT_EFI"
 echo " - Cmdline: $CMDLINE"
 
 # 5. Build Unified Kernel Image (UKI)
-if [ -f "$KERNEL_IMG" ] && [ -x "$UKIFY_BIN" ]; then
-    # Always including DTB as requested
-    "$UKIFY_BIN" build \
-        --linux "$KERNEL_IMG" \
-        --devicetree "$DTB_FILE" \
-        --cmdline "$CMDLINE" \
+if [ -f "$KERNEL_IMG" ] && [ -n "$UKIFY_BIN" ]; then
+    UKIFY_ARGS=(
+        build
+        --linux "$KERNEL_IMG"
+        --cmdline "$CMDLINE"
+        --uname "$KVER"
         --output "$OUTPUT_EFI"
+    )
+
+    if [ -f "$DTB_FILE" ]; then
+        UKIFY_ARGS+=(--devicetree "$DTB_FILE")
+    fi
+
+    if [ -f "$BOOT_DIR/initrd.img-$KVER" ]; then
+        echo " - Initrd:  $BOOT_DIR/initrd.img-$KVER"
+        UKIFY_ARGS+=(--initrd "$BOOT_DIR/initrd.img-$KVER")
+    fi
+
+    "$UKIFY_BIN" "${UKIFY_ARGS[@]}"
 else
     echo "Error: Kernel image or ukify not found. Skipping UKI generation."
     exit 0
 fi
 
-# 6. Attempt to mount ESP and copy the file
-ESP_PART="/dev/disk/by-partlabel/esp"
-MNT_TMP=$(mktemp -d)
-DEST_DIR="$MNT_TMP/EFI/ubuntu"
-MOUNT_SUCCESS=false
+# 6. Attempt to copy UKI to ESP (mounted or via partition)
+COPIED=false
 
-if [ -b "$ESP_PART" ]; then
-    for i in 1 2 3; do
-        echo "Attempt $i: Mounting ESP ($ESP_PART)..."
-        if mount "$ESP_PART" "$MNT_TMP" 2>/dev/null; then
-            MOUNT_SUCCESS=true
-            break
-        fi
-        sleep 1
-    done
+if mountpoint -q /boot/efi 2>/dev/null; then
+    mkdir -p "/boot/efi/EFI/Ubuntu"
+    cp "$OUTPUT_EFI" "/boot/efi/EFI/Ubuntu/"
+    sync "/boot/efi/EFI/Ubuntu/$OUTPUT_EFI" 2>/dev/null || true
+    echo "Success: $OUTPUT_EFI copied to mounted ESP (/boot/efi/EFI/Ubuntu/)."
+    COPIED=true
 fi
 
-if [ "$MOUNT_SUCCESS" = true ]; then
-    mkdir -p "$DEST_DIR"
-    cp "$OUTPUT_EFI" "$DEST_DIR/"
-    echo "Success: $OUTPUT_EFI copied to ESP."
-    umount "$MNT_TMP"
-else
+if [ "$COPIED" = false ]; then
+    ESP_PART=""
+    for cand in /dev/disk/by-partlabel/esp /dev/disk/by-partlabel/ESPNABU /dev/disk/by-label/ESPNABU /dev/disk/by-label/esp /dev/sda31; do
+        if [ -b "$cand" ]; then
+            ESP_PART="$cand"
+            break
+        fi
+    done
+
+    if [ -n "$ESP_PART" ]; then
+        MNT_TMP=$(mktemp -d)
+        DEST_DIR="$MNT_TMP/EFI/Ubuntu"
+        for i in 1 2 3; do
+            echo "Attempt $i: Mounting ESP ($ESP_PART)..."
+            if mount "$ESP_PART" "$MNT_TMP" 2>/dev/null; then
+                mkdir -p "$DEST_DIR"
+                cp "$OUTPUT_EFI" "$DEST_DIR/"
+                sync "$DEST_DIR/$OUTPUT_EFI" 2>/dev/null || true
+                echo "Success: $OUTPUT_EFI copied to ESP ($DEST_DIR/)."
+                umount "$MNT_TMP"
+                COPIED=true
+                break
+            fi
+            sleep 1
+        done
+        rm -rf "$MNT_TMP"
+    fi
+fi
+
+if [ "$COPIED" = false ]; then
     echo "Notice: ESP not available or mount failed. Copied .efi file to /boot/"
     cp "$OUTPUT_EFI" /boot/
 fi
 
 # 7. Cleanup
-rm -rf "$MNT_TMP"
 rm -f "$OUTPUT_EFI"
 
 exit 0

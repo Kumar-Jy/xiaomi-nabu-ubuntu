@@ -1,19 +1,15 @@
-# TheMojoMan PPA – Xiaomi Pad 5 (nabu) kernel packages
-# Ubuntu 26.04 LTS (Resolute Racoon)
-# Modern DEB822 format (.sources)
-#
-# Installation:
-#   1. Import GPG key:
-#      wget -qO- https://themojoman.github.io/ppa/themojoman.gpg \
-#        | sudo gpg --dearmor -o /etc/apt/keyrings/themojoman.gpg
+# Kumar-Jy nabu-pkgs Ubuntu Repository
+Types: deb
+URIs: https://github.com/Kumar-Jy/nabu-pkgs/releases/download/ubuntu/
+Suites: ./
+Trusted: yes
 
-# Universal Repository (for all Ubuntu versions)
+# TheMojoMan PPA – Xiaomi Pad 5 (nabu) kernel packages (Fallback)
 Types: deb
 URIs: https://themojoman.github.io/ppa/xiaomi-nabu/ubuntu/main/
 Suites: ./
 Signed-By: /etc/apt/keyrings/themojoman.gpg
 
-# Version-Specific Repository (only for resolute)
 Types: deb
 URIs: https://themojoman.github.io/ppa/xiaomi-nabu/ubuntu/resolute/
 Suites: ./

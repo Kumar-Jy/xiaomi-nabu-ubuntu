@@ -1,0 +1,41 @@
+#!/bin/bash
+set -e
+
+KVER="${1:-}"
+if [ -z "$KVER" ]; then
+    exit 0
+fi
+
+CLEAN_KVER="${KVER//-xiaomi-nabu-tmm/}"
+TARGET_EFI="${CLEAN_KVER}.efi"
+
+# Remove from /boot if present
+rm -f "/boot/$TARGET_EFI" "/boot/dtb-$KVER" 2>/dev/null || true
+
+# 1. Remove from mounted /boot/efi
+if mountpoint -q /boot/efi 2>/dev/null; then
+    rm -f "/boot/efi/EFI/Ubuntu/$TARGET_EFI" 2>/dev/null || true
+fi
+
+# 2. Remove from ESP partition if accessible
+ESP_PART=""
+for cand in /dev/disk/by-partlabel/esp /dev/disk/by-partlabel/ESPNABU /dev/disk/by-label/ESPNABU /dev/disk/by-label/esp /dev/sda31; do
+    if [ -b "$cand" ]; then
+        ESP_PART="$cand"
+        break
+    fi
+done
+
+if [ -n "$ESP_PART" ]; then
+    MNT_TMP=$(mktemp -d)
+    if mount "$ESP_PART" "$MNT_TMP" 2>/dev/null; then
+        if [ -f "$MNT_TMP/EFI/Ubuntu/$TARGET_EFI" ]; then
+            echo "zz-remove-uki: Deleting $TARGET_EFI from ESP ($ESP_PART)..."
+            rm -f "$MNT_TMP/EFI/Ubuntu/$TARGET_EFI"
+        fi
+        umount "$MNT_TMP"
+    fi
+    rm -rf "$MNT_TMP"
+fi
+
+exit 0

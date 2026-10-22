@@ -5,55 +5,44 @@ set -e
 if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
 
     # 2. Determine Kernel Version
-    # During removal, we fallback to uname -r if $2 is not set
     KVER="$2"
     if [ -z "$KVER" ]; then
         KVER=$(uname -r)
     fi
 
-    # 3. Dynamically determine Root Partition Label
-    ROOT_LABEL=$(lsblk -no PARTLABEL $(findmnt -no SOURCE /) 2>/dev/null)
-    
-    # Fallback to 'linux' if label detection fails during removal
-    if [ -z "$ROOT_LABEL" ]; then
-        ROOT_LABEL="linux"
-    fi
-
-    # 4. Format the EFI filename to match the one created in postinst
+    # 3. Format the EFI filename
     CLEAN_KVER="${KVER//-xiaomi-nabu-tmm/}"
-    TARGET_EFI="${CLEAN_KVER}-${ROOT_LABEL}.efi"
+    TARGET_EFI="${CLEAN_KVER}.efi"
 
-    # 5. Attempt to mount ESP
-    ESP_PART="/dev/disk/by-partlabel/esp"
-    MNT_TMP=$(mktemp -d)
-    DEST_FILE="$MNT_TMP/EFI/ubuntu/$TARGET_EFI"
-    MOUNT_SUCCESS=false
+    # Also clean from /boot
+    rm -f "/boot/$TARGET_EFI" "/boot/dtb-$KVER" 2>/dev/null || true
 
-    if [ -b "$ESP_PART" ]; then
-        for i in 1 2 3; do
-            if mount "$ESP_PART" "$MNT_TMP" 2>/dev/null; then
-                MOUNT_SUCCESS=true
-                break
-            fi
-            sleep 1
-        done
+    # 4. Remove from mounted /boot/efi
+    if mountpoint -q /boot/efi 2>/dev/null; then
+        rm -f "/boot/efi/EFI/Ubuntu/$TARGET_EFI" 2>/dev/null || true
     fi
 
-    # 6. Delete the file if ESP is mounted
-    if [ "$MOUNT_SUCCESS" = true ]; then
-        if [ -f "$DEST_FILE" ]; then
-            echo "Post-remove: Deleting $TARGET_EFI from ESP..."
-            rm -f "$DEST_FILE"
-        else
-            echo "Post-remove: $TARGET_EFI not found on ESP, nothing to do."
+    # 5. Attempt to find and mount ESP
+    ESP_PART=""
+    for cand in /dev/disk/by-partlabel/esp /dev/disk/by-partlabel/ESPNABU /dev/disk/by-label/ESPNABU /dev/disk/by-label/esp /dev/sda31; do
+        if [ -b "$cand" ]; then
+            ESP_PART="$cand"
+            break
         fi
-        umount "$MNT_TMP"
-    else
-        echo "Post-remove: ESP not available. Could not delete EFI file (ignored)."
-    fi
+    done
 
-    # Cleanup temp directory
-    rm -rf "$MNT_TMP"
+    if [ -n "$ESP_PART" ]; then
+        MNT_TMP=$(mktemp -d)
+        DEST_FILE="$MNT_TMP/EFI/Ubuntu/$TARGET_EFI"
+        if mount "$ESP_PART" "$MNT_TMP" 2>/dev/null; then
+            if [ -f "$DEST_FILE" ]; then
+                echo "Post-remove: Deleting $TARGET_EFI from ESP ($ESP_PART)..."
+                rm -f "$DEST_FILE"
+            fi
+            umount "$MNT_TMP"
+        fi
+        rm -rf "$MNT_TMP"
+    fi
 fi
 
 exit 0

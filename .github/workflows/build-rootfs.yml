@@ -1,4 +1,4 @@
-name: Build Ubuntu image for Xiaomi Pad 5 (nabu)
+name: Build Ubuntu Installer for Xiaomi Pad 5 (nabu)
 
 on:
   workflow_dispatch:
@@ -11,6 +11,7 @@ on:
         description: 'Additional packages to install'
         required: false
         default: ''
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   
@@ -24,7 +25,7 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget xz-utils coreutils curl e2fsprogs
+          sudo apt-get install -y wget xz-utils coreutils curl e2fsprogs dosfstools zip pigz git
 
       - name: Create RootFS Image
         run: |
@@ -32,7 +33,7 @@ jobs:
           EXTRA_PACKAGES="${{ github.event.inputs.extra_packages }}"
           
           # Create and format image
-          truncate -s 6G rootfs.img
+          truncate -s 12G rootfs.img
           mkfs.ext4 rootfs.img
           mkdir -p rootdir
           sudo mount -o loop rootfs.img rootdir
@@ -47,14 +48,30 @@ jobs:
           wget -q $URL -O ubuntu-base.tar.gz
           sudo tar xzvf ubuntu-base.tar.gz -C rootdir
 
-          # Setup Config Files
+          # Setup Config Files & Fixes
           sudo mkdir -p rootdir/var/lib/gdm3/.config
           sudo mkdir -p rootdir/etc/skel/.config/dconf
+          sudo mkdir -p rootdir/etc/apt/preferences.d
+          sudo mkdir -p rootdir/etc/udev/rules.d
+          sudo mkdir -p rootdir/etc/modprobe.d
+          sudo mkdir -p rootdir/etc/dracut.conf.d
+          sudo mkdir -p rootdir/etc/kernel/postinst.d
+          sudo mkdir -p rootdir/etc/kernel/postrm.d
+
           sudo cp root-setup-files/monitors.xml rootdir/var/lib/gdm3/.config/monitors.xml
           sudo cp root-setup-files/monitors.xml rootdir/etc/skel/.config/monitors.xml
           sudo cp root-setup-files/console-setup rootdir/etc/default/console-setup
           sudo cp root-setup-files/user rootdir/etc/skel/.config/dconf/
           sudo cp root-setup-files/bash_aliases rootdir/etc/skel/.bash_aliases
+          sudo cp root-setup-files/no-kdump.pref rootdir/etc/apt/preferences.d/no-kdump.pref
+          sudo cp root-setup-files/61-dev-root.rules rootdir/etc/udev/rules.d/61-dev-root.rules
+          sudo cp root-setup-files/80-iio-sensor-proxy.rules rootdir/etc/udev/rules.d/80-iio-sensor-proxy.rules
+          sudo cp root-setup-files/qcom-iris.conf rootdir/etc/modprobe.d/qcom-iris.conf
+          sudo cp root-setup-files/nabu-dsp.conf rootdir/etc/dracut.conf.d/nabu-dsp.conf
+          sudo cp root-setup-files/zz-update-uki rootdir/etc/kernel/postinst.d/zz-update-uki
+          sudo chmod +x rootdir/etc/kernel/postinst.d/zz-update-uki
+          sudo cp root-setup-files/zz-remove-uki rootdir/etc/kernel/postrm.d/zz-remove-uki
+          sudo chmod +x rootdir/etc/kernel/postrm.d/zz-remove-uki
 
           # Bind Mounts
           sudo mount --bind /dev rootdir/dev
@@ -67,7 +84,7 @@ jobs:
           echo "nabu" | sudo tee rootdir/etc/hostname
           echo -e "127.0.0.1 localhost\n127.0.1.1 nabu" | sudo tee rootdir/etc/hosts
 
-          # Chroot execution
+          # Chroot execution: Phase 1 (Locales & Keys)
           sudo chroot rootdir /bin/bash <<EOF
           export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:\$PATH
           export DEBIAN_FRONTEND=noninteractive
@@ -87,12 +104,13 @@ jobs:
           
           # 4. Switch the current session to the new locale
           export LANG=en_US.UTF-8
-          unset LC_ALL  # Allow LC_ALL to be determined by LANG
+          unset LC_ALL
           EOF
           
           sudo cp root-setup-files/xiaomi-nabu.sources rootdir/etc/apt/sources.list.d/xiaomi-nabu.sources
           sudo cp root-setup-files/themojoman.gpg rootdir/etc/apt/keyrings/themojoman.gpg
           
+          # Chroot execution: Phase 2 (Packages)
           sudo chroot rootdir /bin/bash <<EOF
           export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:\$PATH
           export DEBIAN_FRONTEND=noninteractive
@@ -101,9 +119,12 @@ jobs:
           
           apt update
           apt install -y bash-completion sudo ssh nano micro curl alsa-ucm-conf
-          apt install -y rmtfs protection-domain-mapper tqftpserv
+          apt install -y rmtfs protection-domain-mapper tqftpserv qrtr-tools
           apt install -y systemd-boot-efi systemd-ukify 
           apt install -y xiaomi-nabu-alsa xiaomi-nabu-firmware
+          apt install -y hexagonrpcd libssc iio-sensor-proxy || true
+          apt install -y nabu-tablet-mode nabu-autobrightness nabu-torch nabu-pmac || true
+          apt install -y libcamera-tools gstreamer1.0-libcamera v4l-utils || true
           apt install -y xiaomi-nabu-linux-6.14
           apt install -y xiaomi-nabu-linux-6.17
           apt install -y zram-config
@@ -114,47 +135,94 @@ jobs:
           apt --fix-broken install -y
           apt upgrade -y
           apt --fix-broken install -y
+
+          # Purge kdump-tools and clean unnecessary dependencies
+          apt purge -y kdump-tools makedumpfile kexec-tools crash || true
+          apt autoremove --purge -y
+
+          # Setup fastrpc user and permissions for hexagonrpcd
+          getent passwd fastrpc >/dev/null || useradd --system --user-group --home /run/fastrpc --shell /usr/sbin/nologin fastrpc
+          chown -R fastrpc:fastrpc /lib/firmware/hexagonfs 2>/dev/null || true
+          install -d -o root -g root -m 0700 /var/lib/tqftpserv/sensors/registry 2>/dev/null || true
+
           sed -i '/ConditionKernelVersion/d' /lib/systemd/system/pd-mapper.service
           sed -i '/^totalmem/ s/^/#/' /usr/bin/init-zram-swapping
           sed -i '/^mem/ s/.*/#&\nmem=10GiB/' /usr/bin/init-zram-swapping
           apt clean
-          systemctl enable bluetooth
+
+          # Enable hardware services
+          systemctl enable bluetooth || true
+          systemctl enable qrtr-ns.service || true
+          systemctl enable hexagonrpcd.service hexagonrpcd-suspend.service hexagonrpcd-resume.service || true
+          systemctl enable nabu-pmac.service || true
+          systemctl enable nabu-tablet-mode.service || true
+          systemctl enable nabu-autobrightness.service || true
+          systemctl enable iio-sensor-proxy.service || true
           EOF
 
-          # fstab (keeping your commented lines)
+          # fstab (keeping commented lines)
           echo "PARTLABEL=linux / ext4 errors=remount-ro,x-systemd.growfs 0 1
           #PARTLABEL=esp /boot/efi vfat umask=0077 0 1
           #PARTLABEL=data /media/data ext4 defaults 0 2" | sudo tee rootdir/etc/fstab
 
-          # Copy EFI files out of the chroot before unmounting
-          sudo cp rootdir/boot/*.efi . || echo "No EFI files found"
+          # Export EFI files from /boot before unmounting
+          mkdir -p ./exported-efi
+          sudo cp rootdir/boot/*.efi ./exported-efi/ 2>/dev/null || echo "No EFI files found in /boot"
 
-          # Cleanup
+          # Cleanup mounts
           sudo umount rootdir/sys
           sudo umount rootdir/proc
           sudo umount rootdir/dev/pts
           sudo umount rootdir/dev
           sudo umount rootdir
+          rm -rf rootdir
 
-      - name: Compress Image
-        id: compress
+      - name: Prepare Installer Structure
         run: |
-          VERSION="${{ github.event.inputs.version }}"
-          FILENAME="ubuntu-${VERSION}-xiaomi-nabu.img.xz"
-          xz -6 rootfs.img
-          mv rootfs.img.xz "$FILENAME"
-          echo "img_name=$FILENAME" >> $GITHUB_OUTPUT
+          # 1. Minimize rootfs image
+          e2fsck -f rootfs.img -y || true
+          resize2fs rootfs.img -M
+          mkdir -p ./images
+          mv ./rootfs.img ./images/
 
-      - name: Upload RootFS image
+          # 2. Setup EFI directory
+          mkdir -p ./efi
+          cp -r ./efi-template/EFI/* ./efi/
+          mkdir -p ./efi/Ubuntu
+          if [ -d "./exported-efi" ] && [ -n "$(ls -A ./exported-efi 2>/dev/null)" ]; then
+            cp ./exported-efi/*.efi ./efi/Ubuntu/
+          fi
+
+          # 3. Create ESP partition image (ESPNABU FAT32)
+          truncate -s 270M ./images/esp.img
+          mkfs.fat -F 32 -S 4096 -s 1 -n ESPNABU ./images/esp.img
+          mkdir -p ./esp-mount
+          sudo mount -o loop ./images/esp.img ./esp-mount/
+          sudo cp -r ./efi/* ./esp-mount/
+          sudo umount ./esp-mount
+          rmdir ./esp-mount
+
+          # 4. Download WinPE image
+          mkdir -p ./installer
+          wget "https://github.com/WOAFlasher/WinInstaller/releases/download/WinPE/WinPE23H2.img" -qO ./installer/pe.img
+
+          # 5. Copy fastboot flash scripts
+          cp ./fastboot-script/flash-linux.bat .
+          cp ./fastboot-script/flash-linux.sh .
+          chmod +x flash-linux.sh
+
+      - name: Upload Installer Artifact
         uses: actions/upload-artifact@v5
         with:
-          name: ${{ steps.compress.outputs.img_name }}
-          path: ${{ steps.compress.outputs.img_name }}
-          if-no-files-found: error
-
-      - name: Upload EFI Binaries
-        uses: actions/upload-artifact@v5
-        with:
-          name: efi-files
-          path: ./*.efi
-          if-no-files-found: warn
+          name: ubuntu-nabu-installer
+          path: |
+            bin
+            DBKP
+            efi
+            flash-linux.bat
+            flash-linux.sh
+            images
+            installer
+            META-INF
+          retention-days: 90
+          compression-level: 5

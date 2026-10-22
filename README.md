@@ -1,191 +1,213 @@
-# Ubuntu Linux on Xiaomi Pad 5 (nabu) - Installation Guide
+# Ubuntu Linux on Xiaomi Pad 5 (nabu) - Installer & Guide
+
 ![Ubuntu Linux on the Xiaomi Pad 5 (nabu)](ubuntu_resolute.png)
-### ⚠️ Disclaimer
-*   **Read the instructions once completely before starting the installation process.**
-*   This project is not officially endorsed, supported, or affiliated with Ubuntu, Canonical, Xiaomi, or any other hardware or software vendor.
-*   I am not responsible for bricked devices, dead SD cards, or data loss.
-*   You are choosing to make these modifications at your own risk.
-*   **!!!BACKUP ALL YOUR DATA!!!** - Android `userdata` will most likely be lost during this process.
+
+An all-in-one installer and rootfs build for running **Ubuntu 26.04 LTS (Resolute Raccoon)** with hardware acceleration on the **Xiaomi Pad 5 (*nabu*)**.
 
 ---
 
-## 🛠 Prerequisites
+## 📑 Table of Contents
 
-* The boot loader of your tablet must be unlocked!
-* Ensure you have downloaded all necessary files to your PC (click on file name in left column):
+- [Requirements](#-requirements)
+- [Hardware Support Status](#-hardware-support-status)
+- [Installation](#-installation)
+  - [1. Partitioning (if not already done)](#1-partitioning-if-not-already-done)
+  - [2. Method A: Flash via TWRP / Recovery (Recommended)](#2-method-a-flash-via-twrp--recovery-recommended)
+  - [3. Method B: Flash via Fastboot (PC / Mac / Linux)](#3-method-b-flash-via-fastboot-pc--mac--linux)
+  - [4. Triple-Boot (Windows + Android + Ubuntu)](#4-triple-boot-windows--android--ubuntu)
+- [Default Credentials](#-default-credentials)
+- [Kernel Updates & Custom Kernels](#-kernel-updates--custom-kernels)
+- [Post-Installation Tips](#-post-installation-tips)
+- [Troubleshooting & Known Issues](#-troubleshooting--known-issues)
+- [Credits & Thanks](#-credits--thanks)
 
-| File | Description | Author & Link |
+---
+
+## 🛠 Requirements
+
+- **Xiaomi Pad 5 (*nabu*)** with an **unlocked bootloader**.
+- [Modified TWRP](https://github.com/Kumar-Jy/twrp_device_xiaomi_nabu/releases/tag/mod-hybrid) (supports on-device partitioning).
+- `ubuntu-nabu-installer.zip` from GitHub Releases / Actions.
+- USB-C cable and a PC with Android Platform Tools (`fastboot` / `adb`) installed.
+
+---
+
+## 📊 Hardware Support Status
+
+| Category | Hardware Feature | Status | Notes |
+| :--- | :--- | :---: | :--- |
+| **Display** | 2.5K WQHD+ LCD (2560x1600 @ 120Hz) | ✅ Working | Novatek NT36523 panel driver, smooth 120Hz refresh rate |
+| **Touch** | Capacitive Multi-touch | ✅ Working | 10-point multi-touch supported out of the box |
+| **Graphics** | 3D GPU Acceleration (Adreno 640) | ✅ Working | Mesa Turnip (Vulkan 1.3) & Freedreno (OpenGL 4.6) |
+| **Audio** | Quad Stereo Speakers | ✅ Working | Cirrus Logic CS35L41 quad amplifiers via ALSA UCM (`xiaomi-nabu-alsa`) |
+| **Microphone** | Built-in Mic Array | ✅ Working | Clear audio recording via ALSA / PipeWire |
+| **Wireless** | Wi-Fi 5 (802.11ac 2.4/5GHz) | ✅ Working | Qualcomm WCN3990 via NetworkManager |
+| **Bluetooth** | Bluetooth 5.0 | ✅ Working | Qualcomm WCN3990 via BlueZ |
+| **Sensors** | Accelerometer, Gyroscope & Compass | ✅ Working | SLPI / SSC via FastRPC & `iio-sensor-proxy` |
+| **Screen Rotation** | Automatic Screen Rotation | ✅ Working | Automatic orientation supported via Wayland / GNOME |
+| **Stylus (Input)** | Xiaomi Smart Pen | ✅ Working | Pressure levels, tilt, and hover via driver |
+| **Battery & Power** | Battery Gauge & Charging | ✅ Working | PM8150B charger driver, 15W USB-PD and QC charging |
+| **Sleep / Wake** | Suspend & Resume | ✅ Working | S2idle sleep supported |
+| **USB** | USB Type-C 2.0 & OTG | ✅ Working | Flash drives, keyboards, hubs, and mice supported |
+| **External Display** | USB DisplayLink Output | ✅ Working | Supported with DisplayLink docks (`evdi` driver) |
+| **External Display** | USB-C DisplayPort Alt-Mode | ❌ Not Supported | Hardware limitation (SoC USB lines lack DP routing) |
+| **DRM** | Widevine L1 (HD Streaming) | ❌ Not Supported | Widevine L3 software works; L1 requires Android TEE |
+
+---
+
+## 💾 Installation
+
+### 1. Partitioning (if not already done)
+
+If your device doesn't have the required `esp` and `linux` partitions:
+
+1. Put your tablet into **Fastboot Mode** (Hold `Power + Volume Down`).
+2. Boot into TWRP:
+   ```bash
+   fastboot boot twrp.img
+   ```
+3. In TWRP, navigate to **Advanced > Terminal** and run:
+   ```bash
+   partition
+   ```
+   Follow the on-screen prompts to configure your layout:
+   * **Dual-Boot (Android + Ubuntu):** Keeps Android and allocates `linux` + `esp`.
+   * **Triple-Boot (Android + Windows + Ubuntu):** Allocates `win` + `linux` + `esp`.
+4. Reboot recovery: Go to **Reboot > Recovery**.
+
+---
+
+### 2. Method A: Flash via TWRP / Recovery (Recommended)
+
+1. Download the `ubuntu-nabu-installer.zip`.
+2. Connect your tablet in TWRP recovery to your PC:
+   ```bash
+   adb push ubuntu-nabu-installer.zip /sdcard/
+   ```
+   *(Or copy it via MTP file transfer).*
+3. In TWRP, tap **Install**, select `ubuntu-nabu-installer.zip`, and swipe to confirm.
+4. **What the installer does automatically:**
+   - Formats `/dev/block/by-name/linux` with ext4.
+   - Extracts the Ubuntu rootfs image directly to the partition.
+   - Sets up the ESP partition with rEFInd bootloader, GopRotate driver, and Ubuntu UKIs.
+   - Patches the Android `boot` partition with DualBootKernelPatcher (DBKP) + UEFI payload.
+5. Tap **Reboot > System**.
+
+---
+
+### 3. Method B: Flash via Fastboot (PC / Mac / Linux)
+
+1. Extract `ubuntu-nabu-installer.zip` on your computer.
+2. Put the tablet into **Fastboot Mode** (Hold `Power + Volume Down`).
+3. Connect the tablet to your PC with USB.
+4. Run the flash script:
+   - **Windows:** Double-click `flash-linux.bat`
+   - **Linux / macOS:**
+     ```bash
+     chmod +x flash-linux.sh
+     ./flash-linux.sh
+     ```
+5. The script checks partition sizes, formats, flashes `rootfs.img` and `esp.img`, and reboots into rEFInd.
+
+---
+
+### 4. Triple-Boot (Windows + Android + Ubuntu)
+
+If you have Windows installed:
+1. When flashing `ubuntu-nabu-installer.zip`, the installer detects your existing Windows BCD and safely configures rEFInd alongside Windows Boot Manager.
+2. In rEFInd, you can choose between **Android**, **Windows**, and **Ubuntu** on every boot.
+
+---
+
+## 🔑 Default Credentials
+
+| Item | Value |
+| :--- | :--- |
+| **Username** | `user` |
+| **Password** | `123456` |
+| **Root (sudo)** | `123456` |
+| **Auto-login** | Enabled for desktop session |
+
+---
+
+## 🔄 Kernel Updates & Custom Kernels
+
+This rootfs includes an automatic UKI generator hook (`/etc/kernel/postinst.d/zz-update-uki`).
+
+### Installing Local or Custom Kernel `.deb`s
+
+When you build or download custom kernels (e.g. from upstream Linux):
+```bash
+sudo dpkg -i linux-image-*.deb linux-headers-*.deb
+```
+**What happens automatically:**
+1. `dracut` generates the system initramfs (`/boot/initrd.img-<version>`).
+2. `zz-update-uki` bundles the kernel image, DTB (`sm8150-xiaomi-nabu.dtb`), and initramfs into a Unified Kernel Image (`.efi`).
+3. It mounts your ESP partition and copies the `.efi` directly to `EFI/Ubuntu/`.
+4. The new kernel appears in the rEFInd boot menu on your next restart!
+
+### System Updates
+```bash
+sudo apt update
+sudo apt upgrade
+```
+*(Or use the included shortcuts: `sau` and `saug`).*
+
+---
+
+## 💡 Post-Installation Tips
+
+### Handy Terminal Aliases
+
+The pre-installed `.bash_aliases` provides shortcuts to save typing:
+
+| Shortcut | Command | Description |
 | :--- | :--- | :--- |
-| [V4-MODDED-TWRP-LINUX.img](https://github.com/TheMojoMan/xiaomi-nabu/releases/download/ubuntu-26.04-v1.0.0/V4-MODDED-TWRP-LINUX.img) | To access the internal disk (+ much more) | [ArKT-7](https://github.com/ArKT-7/twrp_device_xiaomi_nabu/releases/tag/mod_linux) |
-| [efi.tar](https://github.com/TheMojoMan/xiaomi-nabu/releases/download/ubuntu-26.04-v1.0.0/efi.tar) | Contains files to boot Linux | [Timofey](https://github.com/timoxa0) & TheMojoMan |
-| [setup_ubuntu.sh](https://github.com/TheMojoMan/xiaomi-nabu/releases/download/ubuntu-26.04-v1.0.0/setup_ubuntu.sh) | Partition disk & Copy boot files | TheMojoMan |
-| [ubuntu-26.04-xiaomi-nabu.img.xz](https://github.com/TheMojoMan/xiaomi-nabu/releases/download/ubuntu-26.04-v1.0.0/ubuntu-26.04-xiaomi-nabu.img.xz) | Ubuntu root file system (COMPRESSED) | [Canonical](https://cdimage.ubuntu.com/ubuntu-base/releases/26.04/beta/) & TheMojoMan |
-| [installer_bootmanager_NOSB.zip](https://github.com/TheMojoMan/xiaomi-nabu/releases/download/ubuntu-26.04-v1.0.0/installer_bootmanager_NOSB.zip) | Patches bootloader to boot LINUX (+ ANDROID + ...) | [rodriguezst](https://github.com/rodriguezst/nabu-dualboot-img) |
+| `sau` | `sudo apt update` | Refresh package indexes |
+| `saug` | `sudo apt upgrade` | Upgrade installed packages |
+| `sai <pkg>` | `sudo apt install <pkg>` | Install an APT package |
+| `sap <pkg>` | `sudo apt purge <pkg>` | Purge an APT package |
+| `ssi <pkg>` | `sudo snap install <pkg>` | Install a Snap package |
+| `..` / `...` | `cd ..` / `cd ../..` | Directory navigation |
 
-### 📦 Important: Unpacking the Image
-The Ubuntu image is usually provided as a compressed `.xz` file. You **must** extract it before flashing to get the actual `.img` file.
-
-*   **Windows:** Use the free tool [7-Zip](https://www.7-zip.org/). Right-click the file -> *7-Zip* -> *Extract here*.
-*   **macOS:** Use [The Unarchiver](https://theunarchiver.com/) or simply double-click the file in Finder.
-*   **Linux (Terminal):**
-    ```bash
-    xz -d ubuntu-26.04-xiaomi-nabu.img.xz
-    ```
-
----
-
-## 💻 Beginner Guide: Terminal/Shell Basics
-If you are not familiar with the command line, follow these steps to get started:
-
-1.  **Open the Terminal:**
-    *   **Windows:** Press `Win + R`, type `cmd`, and hit Enter.
-    *   **macOS:** Press `Cmd + Space`, type `Terminal`, and hit Enter.
-    *   **Linux:** You should know (depends on your used distro).
-
-    **Navigate to your folder:** Type `cd ` (<- space), drag and drop the folder containing your downloads into the terminal, and press Enter.
-2.  **ADB/Fastboot:** Ensure you have the [Android Platform Tools](https://developer.android.com/studio/releases/platform-tools) installed.
-3.  **History:** Use up/down arrows to scroll through command history. Use Ctrl+R to search in command history. [Mac: Cmd+...]
-4.  **Auto-completion:** Type the first two letters of command and then press TAB key. Press TAB twice to get more options.
-5.  **Line editing:** Ctrl+A/E: set cursor to beginning/end of line, Ctrl+U/K: delete text to left/right of cursor. [Mac: Cmd+...]
-6.  **Copy/Paste:** Select text with mouse than right click and choose copy (Shift+Ctrl+c) or paste (Shift+Ctrl+v). [Mac: Shift+Cmd+...]
-
----
-
-## 1. Preparation & Partitioning
-
-1.  Put your tablet into **Fastboot Mode**: Shut down tablet, than press and hold down "Volume Down" key while connecting your tablet to a PC/Mac with a USB cable.
-    Tablet should power on and show 'Fastboot' after some seconds. Release "Volume Down" key.
-2.  Boot the modified TWRP from your PC (repeat if it does not work the first time):
-    ```bash
-    fastboot boot V4-MODDED-TWRP-LINUX.img
-    ```
-3.  Once TWRP loads, push the setup files to the tablet, enter the tablet's shell and run the utility:
-    ```bash
-    adb push setup_ubuntu.sh tmp
-    adb push efi.tar tmp
-    adb shell "chmod +x tmp/setup_ubuntu.sh && tmp/setup_ubuntu.sh"
-    ```
-    
-    **Inside the script menu:**
-    *   **Dry-Run:** Choose "Yes" first to simulate the process safely.
-    *   **Partitioning:** 
-        *   **Single-Boot:** Choose to **wipe** `userdata` (Option 1). This will remove Android completely!!!
-        *   **Dual-Boot:** Choose to **resize** `userdata` (Option 2). This will keep Android (but data will be lost most probably).
-    *   **Layout:** Select `esp + linux + data` (Option 2) for the best experience. This allows you e.g. to install a new Linux version without losing all your data.
-    *   **Finalizing:** The script will automatically format the ESP and install the bootloader files from `efi.tar`.
-
----
-
-## 2. Flashing Ubuntu
-
-Once the partitioning is ready and the device is back in **Fastboot Mode**, flash the actual operating system:
+### Recommended Apps
 
 ```bash
-# Flash the UNCOMPRESSED Ubuntu root file system image
-fastboot flash linux ubuntu-26.04-xiaomi-nabu.img
+# Web browser
+sudo snap install firefox
+
+# Media player
+sudo apt install vlc
+
+# Local file sharing
+sudo snap install localsend
 ```
 
 ---
 
-## 3. Patching the Android Bootloader
+## ⚠️ Troubleshooting & Known Issues
 
-To be able to boot Linux (and other OS on your disk) we install the boot image patcher by **rodriguezst** via ADB sideload:
+> [!TIP]
+> For a detailed, step-by-step diagnostic and fix guide for kernel errors, sensors, cameras, and hardware video decode, please see the **[Troubleshooting Guide (TROUBLESHOOTING.md)](TROUBLESHOOTING.md)**.
 
-1.  On your tablet, go back to the **home screen of TWRP**.
-2.  Tap on **Advanced** -> Tap on **ADB Sideload** -> **Swipe the bar** on the screen.
-3.  On your PC, run the adb sideload command:
-    ```bash
-    adb sideload installer_bootmanager_NOSB.zip
-    ```
-4.  Once finished, you can reboot. Your device will now be able to boot Linux (or you can switch to Android or other installed systems).
-
----
-
-## 🌐 Alternative: Web-based Tool (Arkt-7)
-If you prefer a graphical interface, you can use the Arkt-7 web tool at [arkt-7.github.io/nabu/](https://arkt-7.github.io/nabu/). 
-*   It allows you to boot TWRP and flash images via WebUSB.
-*   You still need to push `setup_ubuntu.sh` and `efi.tar` to the tmp folder as described above.
-*   Run the `setup_ubuntu.sh` script via the TWRP terminal: Tap on **Advanced** -> Tap on **Terminal** -> Type: `chmod +x tmp/setup_ubuntu.sh && tmp/setup_ubuntu.sh`.
+1. **Kernel Boot / Black Screen (Samsung UFS):**
+   Some Pad 5 units use Samsung UFS chips which can be timing-sensitive on certain mainline kernels.
+   - If a kernel hangs on boot for more than 30 seconds, hold the **Power Button** for 10 seconds to reboot.
+   - The installer includes stable fallback kernels (`6.14.11` and `6.17-UFS-slowdown+`). Select a fallback in rEFInd if needed.
+2. **Kernel Upgrade / dpkg crash (`kdump-tools` / `/dev/root`):**
+   - Run `sudo apt purge -y kdump-tools makedumpfile crash && sudo dpkg --configure -a`. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#1-kernel-upgrade--installation-errors-kdump-tools--devroot) for permanent fix.
+3. **Sensors / Auto-Rotation / Auto-Brightness:**
+   - Requires `hexagonrpcd` service running to serve SLPI DSP sensor registry. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#3-sensors-auto-rotation--auto-brightness).
+4. **Hardware Video Decoding (Iris):**
+   - Add `options qcom_iris allow_fw_boot=1` to `/etc/modprobe.d/qcom-iris.conf`. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#4-hardware-video-acceleration-qualcomm-iris-hw-decoderencoder).
 
 ---
 
-## ⚠️ Troubleshooting & Known-issues
+## 🤝 Credits & Thanks
 
-*   **Kernel Boot Issues:** **Kernel 6.17** does not boot reliably on all devices, particularly those with **Samsung UFS** drives.
-	If screen stays black for more than 30 seconds, hold power button until tablet reboots. Try several times. If it consistently fails,
-	use **Kernel 6.14.11** which boots on every tablet.
-*   **Files app:** long-tap on folder opens context-menue but long-tap on background not -> use mouse for right-click or terminal to create new folders with `mkdir folder_name`.
-*   **Suspend:** Screen sometimes does not turn on again after Suspend.
----
-
-## Post-Installation
-After booting Ubuntu and doing the initial setup connect to the internet (if you did not do it before).
-
-**Updates & Upgrades:**
-*  Open terminal -> click top icon in left bar.
-*  Type `cat .bash_aliases`. This shows you a list of shortcuts that I have defined for your (and my) convenience. It will save you a lot of typing in the long run!
-   
-   [You can add your own shortcuts by editing the file with `micro .bash_aliases`. Do your changes. Save with "Ctrl+s". Quit with "Ctrl+q".]
-*  Update the package list: `sudo apt update` (shortcut: `sau`).
-*  Upgrade the packages (if there are updates available): `sudo apt upgrade` (shortcut: `saug`).
-
-   Information: The `sudo` command gets you superuser (root) privileges. Only superuser (root) can install new software.
-
-**Change your language settings:**
-*  Tap on battery symbol in the top right corner.
-*  Tap the settings symbol.
-*  Scroll the left column up until you see 'System' at the very bottom. Tap on it.
-*  Tap on 'Region & Language' -> 'Manage Installed Languages' -> 'Install/Remove Languages...'.
-*  Mark the language(s) to install and tap 'Apply'.
-*  Drag your new language up to the top of the list. <- Known-issue: You need to use a mouse for it!
-*  Tap 'Apply System-Wide' and 'Close'. Set prefered language and format for 'Your Account'.
-*  Log out and log in -> System should use your chosen language now.
- 
-**Install some common apps:**
-*  VLC: `sudo apt install firefox` (shortcut: `sai vlc`).
-*  Blender: `sudo apt install blender` (shortcut: `sai blender`).
-*  Firefox browser: `sudo snap install firefox` (shortcut: `ssi firefox`).
-*  Ubuntu app store: `sudo snap install snap-store` (shortcut: `ssi snap-store`).
-*  LocalSend: `sudo snap install localsend` (shortcut: `ssi localsend`).
-*  Telegram: `sudo snap install telegram-desktop` (shortcut: `ssi telegram-desktop`).
-
-**Using your 'data' partition:**
-*  Type `sudo micro /etc/fstab`. Remove the "#" sign in last line. Save with "Ctrl+s". Quit with "Ctrl+q" and **reboot**.
-*  After reboot: Open terminal again and type `sudo chown <your_user_name>:<your_user_name> /media/data`. E.g. `sudo chown tom:tom /media/data` when `tom` is your username.
-*  Optional: Please use a search engine or AI assistent to learn how to permanently link your home folders (Download/Pictures etc.) to 'data' partition.
-
-**Using the Xiaomi pen**
-*  The pen should work without any further action.
-*  [Kernel 6.17 only] To activate charging of pen open terminal and run `sudo modprobe idtp9418`. Tip of pen should point to left.
-*  [Kernel 6.17 only] To make activation permanent run `echo idtp9418 | sudo tee /etc/modules-load.d/charge-stylus.conf`.
-*  [Kernel 6.17 only] To control charging state open Bluetooth settings, long-press one of the pen buttons until "Xiaomi Smart Pen" appears in Bluetooth settings.
-   Connect pen. Now change to 'Energy' setting. Under 'Connected Devices' it should show charging state.
----
-
-## Credits
-
-I would like to thank the following people (more or less in chronological order) for their excellent work in developing the Linux kernel and/or essential tools for the Xiaomi Pad 5.
-Without them this would all not be possible:
-*   **Alexandru Marc Serdeliuc** <https://github.com/serdeliuk>
-*   **map220v** <https://github.com/map220v>
-*   **maverickjb** <https://github.com/maverickjb>
-*   **Pan Ortiz** <https://gitlab.com/panpanpanpan>
-*   **Viola Guerrera** <https://github.com/nik012003>
-*   **rodriguezst** <https://github.com/rodriguezst>
-*   **Timofey** <https://github.com/timoxa0>
-*   **Amrit Ranjan** <https://github.com/arkt-7>
-*   **jhuang** <https://github.com/jhuang6451>
-*   **gmanka** <https://github.com/gmankab>
-
----
-
-## Other great Linux distributions for nabu
-
-* [postmarketOS](https://wiki.postmarketos.org/wiki/Xiaomi_Pad_5_%28xiaomi-nabu%29) - pmOS for nabu
-* [fedora_nabu](https://github.com/jhuang6451/nabu_fedora) - Fedora for nabu
-* [pocketblue](https://github.com/pocketblue/pocketblue) - Fedora Atomic for mobile devices 
-
----
-
-## Xiaomi Pad 5 on Telegram
-<https://t.me/nabulinux> - Special Thanks to Mateus Lima for managing the group!
+- **[TheMojoMan](https://github.com/TheMojoMan)** — Original Xiaomi Pad 5 Ubuntu port, packaging, and kernel maintainer.
+- **[Kumar_Jy](https://github.com/Kumar-Jy)** — Unified installer development, automation, and rootfs maintenance.
+- **[ArKT-7](https://github.com/ArKT-7)** — TWRP Linux recovery modifications and partitioning utilities.
+- **[rodriguezst](https://github.com/rodriguezst)** — Android bootloader dual-boot patcher (DBKP).
+- **[Canonical](https://ubuntu.com)** — Ubuntu Linux.
+- **[sm8150-mainline](https://gitlab.com/sm8150-mainline)** — Mainline Linux kernel port for Qualcomm SM8150.
