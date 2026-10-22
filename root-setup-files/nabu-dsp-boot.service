@@ -1,0 +1,21 @@
+[Unit]
+Description=Bring up Xiaomi Pad 5 Qualcomm DSPs (SLPI, ADSP, CDSP)
+DefaultDependencies=no
+After=systemd-udev-settle.service local-fs.target
+Before=sysinit.target bluetooth.service qrtr-ns.service rmtfs.service hexagonrpcd.service sound.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '\
+  for r in /sys/class/remoteproc/remoteproc*; do \
+    name=$(cat $r/name 2>/dev/null); \
+    state=$(cat $r/state 2>/dev/null); \
+    if [ "$state" = "offline" ]; then \
+      echo "Starting offline remoteproc $name ($r)..."; \
+      echo start > $r/state 2>/dev/null || true; \
+    fi; \
+  done'
+
+[Install]
+WantedBy=sysinit.target

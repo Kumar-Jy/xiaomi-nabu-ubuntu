@@ -77,6 +77,7 @@ jobs:
           sudo cp root-setup-files/80-iio-sensor-proxy.rules rootdir/etc/udev/rules.d/80-iio-sensor-proxy.rules
           sudo cp root-setup-files/qcom-iris.conf rootdir/etc/modprobe.d/qcom-iris.conf
           sudo cp root-setup-files/nabu-dsp.conf rootdir/etc/dracut.conf.d/nabu-dsp.conf
+          sudo cp root-setup-files/nabu-dsp-boot.service rootdir/etc/systemd/system/nabu-dsp-boot.service
           sudo cp root-setup-files/zz-update-uki rootdir/etc/kernel/postinst.d/zz-update-uki
           sudo chmod +x rootdir/etc/kernel/postinst.d/zz-update-uki
           sudo cp root-setup-files/zz-remove-uki rootdir/etc/kernel/postrm.d/zz-remove-uki
@@ -171,9 +172,10 @@ jobs:
           systemctl enable hexagonrpcd.service hexagonrpcd-suspend.service hexagonrpcd-resume.service || true
           systemctl enable nabu-pmac.service || true
           systemctl enable nabu-tablet-mode.service || true
-          systemctl enable nabu-autobrightness.service || true
+          systemctl --global enable nabu-autobrightness.service || true
           systemctl enable iio-sensor-proxy.service || true
           systemctl enable rmtfs.service tqftpserv.service pd-mapper.service || true
+          systemctl enable nabu-dsp-boot.service || true
           EOF
 
           # fstab (keeping commented lines)
