@@ -52,6 +52,8 @@ jobs:
           sudo mkdir -p rootdir/var/lib/gdm3/.config
           sudo mkdir -p rootdir/etc/skel/.config/dconf
           sudo mkdir -p rootdir/etc/apt/preferences.d
+          sudo mkdir -p rootdir/etc/apt/keyrings
+          sudo mkdir -p rootdir/etc/apt/sources.list.d
           sudo mkdir -p rootdir/etc/udev/rules.d
           sudo mkdir -p rootdir/etc/modprobe.d
           sudo mkdir -p rootdir/etc/dracut.conf.d
@@ -118,15 +120,15 @@ jobs:
           unset LC_ALL
           
           apt update
-          apt install -y bash-completion sudo ssh nano micro curl alsa-ucm-conf
+          apt install -y bash-completion sudo ssh nano micro curl alsa-ucm-conf dracut
           apt install -y rmtfs protection-domain-mapper tqftpserv qrtr-tools
           apt install -y systemd-boot-efi systemd-ukify 
           apt install -y xiaomi-nabu-alsa xiaomi-nabu-firmware
           apt install -y hexagonrpcd libssc iio-sensor-proxy || true
           apt install -y nabu-tablet-mode nabu-autobrightness nabu-torch nabu-pmac || true
           apt install -y libcamera-tools gstreamer1.0-libcamera v4l-utils || true
-          apt install -y xiaomi-nabu-linux-6.14
-          apt install -y xiaomi-nabu-linux-6.17
+          apt install -y 'linux-image-7.3*' 'linux-headers-7.3*'
+          apt install -y xiaomi-nabu-linux-6.17 || true
           apt install -y zram-config
           apt install -y $EXTRA_PACKAGES
           apt --fix-broken install -y

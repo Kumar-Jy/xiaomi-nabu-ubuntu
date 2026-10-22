@@ -15,7 +15,7 @@ An all-in-one installer and rootfs build for running **Ubuntu 26.04 LTS (Resolut
   - [2. Method A: Flash via TWRP / Recovery (Recommended)](#2-method-a-flash-via-twrp--recovery-recommended)
   - [3. Method B: Flash via Fastboot (PC / Mac / Linux)](#3-method-b-flash-via-fastboot-pc--mac--linux)
   - [4. Triple-Boot (Windows + Android + Ubuntu)](#4-triple-boot-windows--android--ubuntu)
-- [Default Credentials](#-default-credentials)
+- [First Boot Setup](#-first-boot-setup)
 - [Kernel Updates & Custom Kernels](#-kernel-updates--custom-kernels)
 - [Post-Installation Tips](#-post-installation-tips)
 - [Troubleshooting & Known Issues](#-troubleshooting--known-issues)
@@ -119,14 +119,9 @@ If you have Windows installed:
 
 ---
 
-## 🔑 Default Credentials
+## 👤 First Boot Setup
 
-| Item | Value |
-| :--- | :--- |
-| **Username** | `user` |
-| **Password** | `123456` |
-| **Root (sudo)** | `123456` |
-| **Auto-login** | Enabled for desktop session |
+On first boot, Ubuntu will start the standard GNOME initial setup wizard. Follow the on-screen prompts to set your preferred language, keyboard layout, Wi-Fi connection, and create your personalized user account and password.
 
 ---
 
