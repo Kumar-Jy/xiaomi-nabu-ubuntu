@@ -5,18 +5,131 @@ This guide provides tested, step-by-step solutions for hardware, kernel, and dri
 ---
 
 ## Table of Contents
-1. [Kernel Upgrade & Installation Errors (`kdump-tools` / `/dev/root`)](#1-kernel-upgrade--installation-errors-kdump-tools--devroot)
-2. [Unified Kernel Image (UKI) & Bootloader Issues](#2-unified-kernel-image-uki--bootloader-issues)
-3. [Sensors, Auto-Rotation & Auto-Brightness](#3-sensors-auto-rotation--auto-brightness)
-4. [Hardware Video Acceleration (Qualcomm Iris HW Decoder/Encoder)](#4-hardware-video-acceleration-qualcomm-iris-hw-decoderencoder)
-5. [Camera Setup & Testing (`libcamera`)](#5-camera-setup--testing-libcamera)
-6. [Audio & Quad Speakers (Cirrus CS35L41)](#6-audio--quad-speakers-cirrus-cs35l41)
-7. [Wi-Fi Permanent MAC Address (`nabu-pmac`)](#7-wi-fi-permanent-mac-address-nabu-pmac)
-8. [Sleep / Suspend Sensor Recovery](#8-sleep--suspend-sensor-recovery)
+1. [Fix Missing Audio, Cameras, Auto-Rotation & Brightness (Existing / Older Installs)](#1-fix-missing-audio-cameras-auto-rotation--brightness-existing--older-installs)
+2. [Kernel Upgrade & Installation Errors (`kdump-tools` / `/dev/root`)](#2-kernel-upgrade--installation-errors-kdump-tools--devroot)
+3. [Unified Kernel Image (UKI) & Bootloader Issues](#3-unified-kernel-image-uki--bootloader-issues)
+4. [Sensors, Auto-Rotation & Auto-Brightness](#4-sensors-auto-rotation--auto-brightness)
+5. [Hardware Video Acceleration (Qualcomm Iris HW Decoder/Encoder)](#5-hardware-video-acceleration-qualcomm-iris-hw-decoderencoder)
+6. [Camera Setup & Testing (`libcamera`)](#6-camera-setup--testing-libcamera)
+7. [Audio & Quad Speakers (Cirrus CS35L41)](#7-audio--quad-speakers-cirrus-cs35l41)
+8. [Wi-Fi Permanent MAC Address (`nabu-pmac`)](#8-wi-fi-permanent-mac-address-nabu-pmac)
+9. [Sleep / Suspend Sensor Recovery](#9-sleep--suspend-sensor-recovery)
 
 ---
 
-## 1. Kernel Upgrade & Installation Errors (`kdump-tools` / `/dev/root`)
+## 1. Fix Missing Audio, Cameras, Auto-Rotation & Brightness (Existing / Older Installs)
+
+### Symptom
+On older rootfs installations, after booting into Kernel 7.3:
+- **No Sound:** No audio output from the 4 speakers; `aplay -l` lists no sound card.
+- **No Cameras:** Camera apps (GNOME Snapshot, Cheese) report no camera available.
+- **No Sensors:** Tablet auto-rotation does not work, and auto-brightness does not respond to ambient lighting.
+- `dmesg` reports repeated firmware load errors at second 4.9:
+  ```text
+  remoteproc remoteproc0: Direct firmware load for qcom/sm8150/xiaomi/nabu/slpi_nb.mbn failed with error -2
+  remoteproc remoteproc2: Direct firmware load for qcom/sm8150/xiaomi/nabu/cdsp.mbn failed with error -2
+  remoteproc remoteproc3: Direct firmware load for qcom/sm8150/xiaomi/nabu/adsp.mbn failed with error -2
+  ```
+
+### Cause
+On Qualcomm Snapdragon 860 (`sm8150`), the Hexagon DSPs probe during **early boot** inside the initial ramdisk (initramfs) before the root ext4 filesystem is mounted:
+- `adsp.mbn`: Audio DSP controlling WCD9340 codec and Cirrus amp quad speakers.
+- `cdsp.mbn`: Compute DSP controlling camera image signal processing.
+- `slpi_nb.mbn`: Sensor Low Power Island DSP serving `/dev/fastrpc-sdsp`, accelerometer, and ambient light sensors.
+
+In older installations, Dracut did not package these three `.mbn` files into the initramfs (`initrd.img`), causing the kernel to leave all three DSPs `offline`.
+
+### Permanent All-In-One Fix
+
+Run the following commands in your terminal to fix all subsystems:
+
+#### Step 1: Install Required Packages & Firmware
+```bash
+sudo apt update
+sudo apt install -y xiaomi-nabu-firmware xiaomi-nabu-alsa hexagonrpcd libssc iio-sensor-proxy \
+  nabu-autobrightness nabu-tablet-mode nabu-pmac libspa-0.2-libcamera dracut systemd-ukify systemd-boot-efi
+```
+
+#### Step 2: Configure Dracut to Bundle DSP Firmware
+```bash
+sudo tee /etc/dracut.conf.d/nabu-dsp.conf << 'EOF'
+install_items+=" /lib/firmware/qcom/sm8150/xiaomi/nabu/slpi_nb.mbn /lib/firmware/qcom/sm8150/xiaomi/nabu/adsp.mbn /lib/firmware/qcom/sm8150/xiaomi/nabu/cdsp.mbn "
+EOF
+```
+
+#### Step 3: Install the Boot Fail-Safe Service
+Guarantees that all Qualcomm remote processors are brought online automatically even if early initramfs loading ever encounters an issue:
+```bash
+sudo tee /etc/systemd/system/nabu-dsp-boot.service << 'EOF'
+[Unit]
+Description=Bring up Xiaomi Pad 5 Qualcomm DSPs (SLPI, ADSP, CDSP)
+DefaultDependencies=no
+After=systemd-udev-settle.service local-fs.target
+Before=sysinit.target bluetooth.service qrtr-ns.service rmtfs.service hexagonrpcd.service sound.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '\
+  for r in /sys/class/remoteproc/remoteproc*; do \
+    name=$(cat $r/name 2>/dev/null); \
+    state=$(cat $r/state 2>/dev/null); \
+    if [ "$state" = "offline" ]; then \
+      echo "Starting offline remoteproc $name ($r)..."; \
+      echo start > $r/state 2>/dev/null || true; \
+    fi; \
+  done'
+
+[Install]
+WantedBy=sysinit.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now nabu-dsp-boot.service
+```
+
+#### Step 4: Enable Hardware Daemons & Auto-Brightness
+```bash
+sudo systemctl enable --now qrtr-ns.service rmtfs.service tqftpserv.service pd-mapper.service
+sudo systemctl enable --now hexagonrpcd.service nabu-pmac.service nabu-tablet-mode.service
+sudo systemctl --global enable nabu-autobrightness.service
+sudo systemctl restart iio-sensor-proxy.service
+```
+
+#### Step 5: Regenerate Initramfs & Update UKI Bootloader
+```bash
+# 1. Regenerate initramfs with the DSP firmware bundled
+KVER=$(uname -r)
+sudo dracut -f /boot/initrd.img-$KVER $KVER
+
+# 2. Mount ESP partition
+sudo mkdir -p /mnt/esp
+sudo mount /dev/disk/by-partlabel/esp /mnt/esp 2>/dev/null || sudo mount /dev/sda31 /mnt/esp
+
+# 3. Compile new Unified Kernel Image (UKI) directly into rEFInd's Ubuntu directory
+sudo ukify build \
+  --linux="/boot/vmlinuz-$KVER" \
+  --initrd="/boot/initrd.img-$KVER" \
+  --devicetree="/boot/dtb-$KVER" \
+  --cmdline="root=PARTLABEL=linux rw fw_devlink=permissive" \
+  --uname="$KVER" \
+  --output="/mnt/esp/EFI/Ubuntu/7.3.0.efi"
+
+sudo sync && sudo umount /mnt/esp
+```
+
+#### Step 6: Bring Up Subsystems Immediately (No Reboot Needed)
+```bash
+# Power up remoteprocs live
+for r in /sys/class/remoteproc/remoteproc*; do echo start | sudo tee $r/state >/dev/null 2>&1 || true; done
+
+# Restart PipeWire audio server to bind sound card & cameras
+systemctl --user restart pipewire wireplumber
+```
+
+---
+
+## 2. Kernel Upgrade & Installation Errors (`kdump-tools` / `/dev/root`)
 
 ### Symptom
 When installing a new kernel `.deb` or running `sudo apt upgrade`, `dpkg` crashes with:
@@ -58,7 +171,7 @@ Ubuntu installs `kdump-tools` by default. Its initramfs generator relies on `/de
 
 ---
 
-## 2. Unified Kernel Image (UKI) & Bootloader Issues
+## 3. Unified Kernel Image (UKI) & Bootloader Issues
 
 ### Symptom
 After installing a kernel update, the device reboots into the old kernel or rEFInd cannot find the new `.efi` boot file.
@@ -93,7 +206,7 @@ sudo sync && sudo umount /mnt/esp
 
 ---
 
-## 3. Sensors, Auto-Rotation & Auto-Brightness
+## 4. Sensors, Auto-Rotation & Auto-Brightness
 
 ### Symptom
 - Auto-rotation does not work in GNOME or KDE.
@@ -159,7 +272,7 @@ Sensors on SM8150 run on the Hexagon SLPI DSP (Sensor Low Power Island). On boot
 
 ---
 
-## 4. Hardware Video Acceleration (Qualcomm Iris HW Decoder/Encoder)
+## 5. Hardware Video Acceleration (Qualcomm Iris HW Decoder/Encoder)
 
 ### Symptom
 - Opening `/dev/video0` or `/dev/video1` returns `Permission denied` (`[Errno 13]`), even as root.
@@ -190,7 +303,7 @@ The upstream `qcom-iris` kernel driver includes a security parameter `allow_fw_b
 
 ---
 
-## 5. Camera Setup & Testing (`libcamera`)
+## 6. Camera Setup & Testing (`libcamera`)
 
 ### Hardware Specs
 - **Rear Camera**: 13 MP OmniVision `ov13b10` with `cn3927` auto-focus actuator.
@@ -202,7 +315,7 @@ Nabu cameras use the **Qualcomm CAMSS** subsystem and V4L2 subdevices. They do *
 ### Testing Camera Capture
 1. **Install tools:**
    ```bash
-   sudo apt install -y libcamera-tools gstreamer1.0-libcamera
+   sudo apt install -y libcamera-tools gstreamer1.0-libcamera libspa-0.2-libcamera
    ```
 
 2. **List detected cameras:**
@@ -224,7 +337,7 @@ Nabu cameras use the **Qualcomm CAMSS** subsystem and V4L2 subdevices. They do *
 
 ---
 
-## 6. Audio & Quad Speakers (Cirrus CS35L41)
+## 7. Audio & Quad Speakers (Cirrus CS35L41)
 
 ### Symptom
 No sound from the 4 speakers or internal microphone.
@@ -247,7 +360,7 @@ No sound from the 4 speakers or internal microphone.
 
 ---
 
-## 7. Wi-Fi Permanent MAC Address (`nabu-pmac`)
+## 8. Wi-Fi Permanent MAC Address (`nabu-pmac`)
 
 ### Symptom
 Wi-Fi MAC address changes randomly on every reboot, resulting in duplicate entries on routers and saved networks disconnecting.
@@ -261,7 +374,7 @@ sudo systemctl enable --now nabu-pmac.service
 
 ---
 
-## 8. Sleep / Suspend Sensor Recovery
+## 9. Sleep / Suspend Sensor Recovery
 
 ### Symptom
 After waking the tablet from suspend (`s2idle`), screen auto-rotation stops updating.

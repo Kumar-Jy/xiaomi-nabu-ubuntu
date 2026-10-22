@@ -185,16 +185,17 @@ sudo snap install localsend
 > [!TIP]
 > For a detailed, step-by-step diagnostic and fix guide for kernel errors, sensors, cameras, and hardware video decode, please see the **[Troubleshooting Guide (TROUBLESHOOTING.md)](TROUBLESHOOTING.md)**.
 
-1. **Kernel Boot / Black Screen (Samsung UFS):**
-   Some Pad 5 units use Samsung UFS chips which can be timing-sensitive on certain mainline kernels.
-   - If a kernel hangs on boot for more than 30 seconds, hold the **Power Button** for 10 seconds to reboot.
+1. **Missing Audio, Cameras, Auto-Rotation & Brightness (Older Installs):**
+   - If audio, cameras, or sensors do not work after updating, see the [All-in-One Hardware Fix in TROUBLESHOOTING.md](TROUBLESHOOTING.md#1-fix-missing-audio-cameras-auto-rotation--brightness-existing--older-installs).
+2. **Kernel Boot / Black Screen (Samsung UFS):**
+   - Some Pad 5 units use Samsung UFS chips which can be timing-sensitive on certain mainline kernels. If a kernel hangs on boot, hold the **Power Button** for 10 seconds to reboot.
    - The installer ships with the latest optimized kernel 7.3 (`linux-image-7.3*`). Additional kernels can be installed via `nabu-pkgs`.
-2. **Kernel Upgrade / dpkg crash (`kdump-tools` / `/dev/root`):**
-   - Run `sudo apt purge -y kdump-tools makedumpfile crash && sudo dpkg --configure -a`. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#1-kernel-upgrade--installation-errors-kdump-tools--devroot) for permanent fix.
-3. **Sensors / Auto-Rotation / Auto-Brightness:**
-   - Requires `hexagonrpcd` service running to serve SLPI DSP sensor registry. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#3-sensors-auto-rotation--auto-brightness).
-4. **Hardware Video Decoding (Iris):**
-   - Add `options qcom_iris allow_fw_boot=1` to `/etc/modprobe.d/qcom-iris.conf`. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#4-hardware-video-acceleration-qualcomm-iris-hw-decoderencoder).
+3. **Kernel Upgrade / dpkg crash (`kdump-tools` / `/dev/root`):**
+   - Run `sudo apt purge -y kdump-tools makedumpfile crash && sudo dpkg --configure -a`. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#2-kernel-upgrade--installation-errors-kdump-tools--devroot) for permanent fix.
+4. **Sensors / Auto-Rotation / Auto-Brightness:**
+   - Requires `hexagonrpcd` service running to serve SLPI DSP sensor registry. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#4-sensors-auto-rotation--auto-brightness).
+5. **Hardware Video Decoding (Iris):**
+   - Add `options qcom_iris allow_fw_boot=1` to `/etc/modprobe.d/qcom-iris.conf`. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#5-hardware-video-acceleration-qualcomm-iris-hw-decoderencoder).
 
 ---
 
