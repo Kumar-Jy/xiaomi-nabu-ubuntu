@@ -88,11 +88,79 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now nabu-dsp-boot.service
 ```
 
-#### Step 4: Enable Hardware Daemons & Auto-Brightness
+#### Step 4: Configure Qualcomm Sensor Registry & Camera Access
 ```bash
+# 1. Mount persist partition (Qualcomm sensor calibration & registry)
+sudo mkdir -p /mnt/vendor/persist /lib/firmware/hexagonfs/mnt/vendor
+if ! grep -q "PARTLABEL=persist" /etc/fstab; then
+  echo "PARTLABEL=persist /mnt/vendor/persist ext4 ro,noatime,nofail 0 2" | sudo tee -a /etc/fstab
+fi
+sudo mount -a
+
+# 2. Setup persist symlinks for Hexagon FastRPC
+sudo ln -sfn /mnt/vendor/persist /persist
+sudo ln -sfn /mnt/vendor/persist /lib/firmware/hexagonfs/persist
+sudo ln -sfn /mnt/vendor/persist/sensors /lib/firmware/hexagonfs/sensors
+sudo ln -sfn /mnt/vendor/persist /lib/firmware/hexagonfs/mnt/vendor/persist
+sudo chown -R fastrpc:fastrpc /lib/firmware/hexagonfs 2>/dev/null || true
+
+# 3. Configure hexagonrpcd systemd drop-in
+sudo mkdir -p /usr/lib/systemd/system/hexagonrpcd.service.d
+sudo tee /usr/lib/systemd/system/hexagonrpcd.service.d/nabu-slpi.conf << 'EOF'
+[Unit]
+StartLimitIntervalSec=0
+RequiresMountsFor=/mnt/vendor/persist
+
+[Service]
+Restart=always
+RestartSec=2s
+Environment="hexagonrpcd_device=/dev/fastrpc-sdsp"
+Environment="hexagonrpcd_dsp=sdsp"
+Environment="hexagonrpcd_fw_dir=/lib/firmware/hexagonfs"
+Environment="hexagonrpcd_extra=-s"
+ReadOnlyPaths=/mnt/vendor/persist /persist /lib/firmware/hexagonfs /sys/devices/soc0
+EOF
+
+# 4. Configure iio-sensor-proxy systemd drop-in
+sudo mkdir -p /usr/lib/systemd/system/iio-sensor-proxy.service.d
+sudo tee /usr/lib/systemd/system/iio-sensor-proxy.service.d/nabu-ssc.conf << 'EOF'
+[Unit]
+Wants=hexagonrpcd.service
+After=hexagonrpcd.service
+StartLimitIntervalSec=0
+
+[Service]
+Restart=always
+RestartSec=2s
+TimeoutStopSec=2s
+RestrictAddressFamilies=AF_UNIX AF_LOCAL AF_NETLINK AF_QIPCRTR
+EOF
+
+# 5. Fix sensor udev rules (avoid ssc-light hang)
+sudo sed -i 's/ssc-accel ssc-accel ssc-light ssc-compass ssc-proximity/ssc-accel ssc-proximity/' /usr/lib/udev/rules.d/80-iio-sensor-proxy.rules 2>/dev/null || true
+sudo sed -i 's/ssc-accel ssc-light ssc-compass ssc-proximity/ssc-accel ssc-proximity/' /usr/lib/udev/rules.d/80-iio-sensor-proxy.rules 2>/dev/null || true
+
+# 6. Add camera & DMA-heap udev rules and user group permissions
+sudo tee /etc/udev/rules.d/60-dma-heap.rules << 'EOF'
+SUBSYSTEM=="dma_heap", GROUP="video", MODE="0660", TAG+="uaccess"
+EOF
+
+sudo tee /etc/udev/rules.d/60-media.rules << 'EOF'
+SUBSYSTEM=="media", GROUP="video", MODE="0660", TAG+="uaccess"
+KERNEL=="v4l-subdev*", GROUP="video", MODE="0660", TAG+="uaccess"
+KERNEL=="video*", GROUP="video", MODE="0660", TAG+="uaccess"
+EOF
+
+sudo usermod -aG video,render $USER
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+
+# 7. Enable hardware daemons
+sudo systemctl daemon-reload
 sudo systemctl enable --now qrtr-ns.service rmtfs.service tqftpserv.service pd-mapper.service
 sudo systemctl enable --now hexagonrpcd.service nabu-pmac.service nabu-tablet-mode.service
 sudo systemctl --global enable nabu-autobrightness.service
+sudo systemctl restart hexagonrpcd.service
 sudo systemctl restart iio-sensor-proxy.service
 ```
 

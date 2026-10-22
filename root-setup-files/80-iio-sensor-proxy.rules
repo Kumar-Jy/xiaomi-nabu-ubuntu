@@ -1,8 +1,8 @@
 # Set the sensor type for all the types we recognise for SDSP/ADSP with libssc.
 # Some devices expose the sensors via a separate SDSP while others re-use ADSP.
 # These DSPs expose itself as /dev/fastrpc-* in the misc subsystem.
-SUBSYSTEM=="misc", KERNEL=="fastrpc-adsp*", ENV{IIO_SENSOR_PROXY_TYPE}+="ssc-accel ssc-light ssc-compass ssc-proximity"
-SUBSYSTEM=="misc", KERNEL=="fastrpc-sdsp*", ENV{IIO_SENSOR_PROXY_TYPE}+="ssc-accel ssc-light ssc-compass ssc-proximity"
+SUBSYSTEM=="misc", KERNEL=="fastrpc-adsp*", ENV{IIO_SENSOR_PROXY_TYPE}+="ssc-accel ssc-proximity"
+SUBSYSTEM=="misc", KERNEL=="fastrpc-sdsp*", ENV{IIO_SENSOR_PROXY_TYPE}+="ssc-accel ssc-proximity"
 
 ENV{IIO_SENSOR_PROXY_TYPE}=="", GOTO="iio_sensor_proxy_end"
 

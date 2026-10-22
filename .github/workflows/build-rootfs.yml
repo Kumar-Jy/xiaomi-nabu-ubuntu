@@ -66,6 +66,9 @@ jobs:
           sudo mkdir -p rootdir/etc/dracut.conf.d
           sudo mkdir -p rootdir/etc/kernel/postinst.d
           sudo mkdir -p rootdir/etc/kernel/postrm.d
+          sudo mkdir -p rootdir/usr/share/libcamera/ipa/simple
+          sudo mkdir -p rootdir/usr/lib/systemd/system/hexagonrpcd.service.d
+          sudo mkdir -p rootdir/usr/lib/systemd/system/iio-sensor-proxy.service.d
 
           sudo cp root-setup-files/monitors.xml rootdir/var/lib/gdm3/.config/monitors.xml
           sudo cp root-setup-files/monitors.xml rootdir/etc/skel/.config/monitors.xml
@@ -74,7 +77,13 @@ jobs:
           sudo cp root-setup-files/bash_aliases rootdir/etc/skel/.bash_aliases
           sudo cp root-setup-files/no-kdump.pref rootdir/etc/apt/preferences.d/no-kdump.pref
           sudo cp root-setup-files/61-dev-root.rules rootdir/etc/udev/rules.d/61-dev-root.rules
+          sudo cp root-setup-files/60-dma-heap.rules rootdir/etc/udev/rules.d/60-dma-heap.rules
+          sudo cp root-setup-files/60-media.rules rootdir/etc/udev/rules.d/60-media.rules
           sudo cp root-setup-files/80-iio-sensor-proxy.rules rootdir/etc/udev/rules.d/80-iio-sensor-proxy.rules
+          sudo cp root-setup-files/ov13b10.yaml rootdir/usr/share/libcamera/ipa/simple/ov13b10.yaml
+          sudo cp root-setup-files/ov8856.yaml rootdir/usr/share/libcamera/ipa/simple/ov8856.yaml
+          sudo cp root-setup-files/nabu-slpi.conf rootdir/usr/lib/systemd/system/hexagonrpcd.service.d/nabu-slpi.conf
+          sudo cp root-setup-files/nabu-ssc.conf rootdir/usr/lib/systemd/system/iio-sensor-proxy.service.d/nabu-ssc.conf
           sudo cp root-setup-files/qcom-iris.conf rootdir/etc/modprobe.d/qcom-iris.conf
           sudo cp root-setup-files/nabu-dsp.conf rootdir/etc/dracut.conf.d/nabu-dsp.conf
           sudo cp root-setup-files/nabu-dsp-boot.service rootdir/etc/systemd/system/nabu-dsp-boot.service
@@ -152,10 +161,21 @@ jobs:
           apt purge -y kdump-tools makedumpfile kexec-tools crash || true
           apt autoremove --purge -y
 
-          # Setup fastrpc user and permissions for hexagonrpcd
+          # Setup persist directory, symlinks and permissions for hexagonrpcd & SSC
+          mkdir -p /mnt/vendor/persist /lib/firmware/hexagonfs/mnt/vendor
+          ln -sfn /mnt/vendor/persist /persist
+          ln -sfn /mnt/vendor/persist /lib/firmware/hexagonfs/persist
+          ln -sfn /mnt/vendor/persist/sensors /lib/firmware/hexagonfs/sensors
+          ln -sfn /mnt/vendor/persist /lib/firmware/hexagonfs/mnt/vendor/persist
           getent passwd fastrpc >/dev/null || useradd --system --user-group --home /run/fastrpc --shell /usr/sbin/nologin fastrpc
           chown -R fastrpc:fastrpc /lib/firmware/hexagonfs 2>/dev/null || true
           install -d -o root -g root -m 0700 /var/lib/tqftpserv/sensors/registry 2>/dev/null || true
+
+          # Ensure default user group membership includes video & render for camera
+          if [ -f /etc/adduser.conf ]; then
+            sed -i 's/^#*EXTRA_GROUPS=.*/EXTRA_GROUPS="dialout cdrom floppy audio video plugdev users render"/' /etc/adduser.conf
+            sed -i 's/^#*ADD_EXTRA_GROUPS=.*/ADD_EXTRA_GROUPS=1/' /etc/adduser.conf
+          fi
 
           sed -i '/ConditionKernelVersion/d' /lib/systemd/system/pd-mapper.service
           sed -i '/^totalmem/ s/^/#/' /usr/bin/init-zram-swapping
@@ -181,7 +201,8 @@ jobs:
           # fstab (keeping commented lines)
           echo "PARTLABEL=linux / ext4 errors=remount-ro,x-systemd.growfs 0 1
           #PARTLABEL=esp /boot/efi vfat umask=0077 0 1
-          #PARTLABEL=data /media/data ext4 defaults 0 2" | sudo tee rootdir/etc/fstab
+          #PARTLABEL=data /media/data ext4 defaults 0 2
+          PARTLABEL=persist /mnt/vendor/persist ext4 ro,noatime,nofail 0 2" | sudo tee rootdir/etc/fstab
 
           # Export EFI files from /boot/efi or /boot before unmounting
           mkdir -p ./exported-efi

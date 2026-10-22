@@ -1,0 +1,4 @@
+# Allow video group access to media controller and v4l-subdev nodes
+SUBSYSTEM=="media", GROUP="video", MODE="0660", TAG+="uaccess"
+KERNEL=="v4l-subdev*", GROUP="video", MODE="0660", TAG+="uaccess"
+KERNEL=="video*", GROUP="video", MODE="0660", TAG+="uaccess"
