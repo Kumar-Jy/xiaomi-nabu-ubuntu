@@ -7,7 +7,7 @@
       <scale>2</scale>
       <primary>yes</primary>
       <transform>
-        <rotation>right</rotation>
+        <rotation>left</rotation>
         <flipped>no</flipped>
       </transform>
       <monitor>
