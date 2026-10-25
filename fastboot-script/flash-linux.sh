@@ -1,10 +1,26 @@
 #!/usr/bin/env bash
-fastboot "$@" getvar product 2>&1 | grep -q 'product: *nabu' || { echo "Missmatching image and device"; exit 1; }
-fastboot "$@" getvar partition-size:linux 2>&1 | grep -q "partition-size:linux:" || { echo "Linux partition not found"; exit 1; }
-fastboot "$@" getvar partition-size:esp 2>&1 | grep -q "partition-size:esp:" || { echo "ESP partition not found"; exit 1; }
-fastboot "$@" erase linux || { echo "Erase linux error"; exit 1; }
-fastboot "$@" erase esp || { echo "Erase esp error"; exit 1; }
-DIR="$(cd "$(dirname "$0")" && pwd)"
-fastboot "$@" flash linux "$DIR/images/rootfs.img" || { echo "Flash rootfs error"; exit 1; }
-fastboot "$@" flash esp "$DIR/images/esp.img" || { echo "Flash esp error"; exit 1; }
-fastboot "$@" reboot || { echo "Reboot error"; exit 1; }
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOTFS="$DIR/images/rootfs.img"
+ESP="$DIR/images/esp.img"
+
+fastboot "$@" getvar product 2>&1 | grep -q 'product: *nabu' || { echo "Error: Device is not nabu" >&2; exit 1; }
+fastboot "$@" getvar partition-size:linux 2>&1 | grep -q "partition-size:linux:" || { echo "Error: Linux partition not found. Run partition in TWRP first." >&2; exit 1; }
+fastboot "$@" getvar partition-size:esp 2>&1 | grep -q "partition-size:esp:" || { echo "Error: ESP partition not found. Run partition in TWRP first." >&2; exit 1; }
+
+[ -f "$ROOTFS" ] || { echo "Error: $ROOTFS not found" >&2; exit 1; }
+[ -f "$ESP" ] || { echo "Error: $ESP not found" >&2; exit 1; }
+
+echo "Erasing partitions..."
+fastboot "$@" erase linux || { echo "Error: Failed to erase linux" >&2; exit 1; }
+fastboot "$@" erase esp || { echo "Error: Failed to erase esp" >&2; exit 1; }
+
+echo "Flashing rootfs..."
+fastboot "$@" flash linux "$ROOTFS" || { echo "Error: Failed to flash rootfs" >&2; exit 1; }
+echo "Flashing ESP..."
+fastboot "$@" flash esp "$ESP" || { echo "Error: Failed to flash ESP" >&2; exit 1; }
+
+echo "Rebooting..."
+fastboot "$@" reboot || { echo "Error: Failed to reboot" >&2; exit 1; }
+echo "Done!"

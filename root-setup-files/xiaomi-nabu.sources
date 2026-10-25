@@ -3,14 +3,3 @@ Types: deb
 URIs: https://github.com/Kumar-Jy/nabu-pkgs/releases/download/ubuntu/
 Suites: ./
 Trusted: yes
-
-# TheMojoMan PPA – Xiaomi Pad 5 (nabu) kernel packages (Fallback)
-Types: deb
-URIs: https://themojoman.github.io/ppa/xiaomi-nabu/ubuntu/main/
-Suites: ./
-Signed-By: /etc/apt/keyrings/themojoman.gpg
-
-Types: deb
-URIs: https://themojoman.github.io/ppa/xiaomi-nabu/ubuntu/resolute/
-Suites: ./
-Signed-By: /etc/apt/keyrings/themojoman.gpg

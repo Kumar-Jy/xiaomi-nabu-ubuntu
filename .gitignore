@@ -1,0 +1,26 @@
+# Build outputs
+*.img
+*.zip
+rootfs.img
+esp.img
+pe.img
+ubuntu-base.tar.gz
+rootdir/
+exported-efi/
+release-files/
+tmp-refind/
+images/
+
+# Downloads / temp
+*.deb
+*.xz
+*.gz
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

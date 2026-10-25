@@ -69,6 +69,7 @@ jobs:
           sudo mkdir -p rootdir/usr/share/libcamera/ipa/simple
           sudo mkdir -p rootdir/usr/lib/systemd/system/hexagonrpcd.service.d
           sudo mkdir -p rootdir/usr/lib/systemd/system/iio-sensor-proxy.service.d
+          sudo mkdir -p rootdir/usr/lib/systemd/system/rtkit-daemon.service.d
 
           sudo cp root-setup-files/monitors.xml rootdir/var/lib/gdm3/.config/monitors.xml
           sudo cp root-setup-files/monitors.xml rootdir/etc/skel/.config/monitors.xml
@@ -84,6 +85,7 @@ jobs:
           sudo cp root-setup-files/ov8856.yaml rootdir/usr/share/libcamera/ipa/simple/ov8856.yaml
           sudo cp root-setup-files/nabu-slpi.conf rootdir/usr/lib/systemd/system/hexagonrpcd.service.d/nabu-slpi.conf
           sudo cp root-setup-files/nabu-ssc.conf rootdir/usr/lib/systemd/system/iio-sensor-proxy.service.d/nabu-ssc.conf
+          sudo cp root-setup-files/rtkit-daemon.conf rootdir/usr/lib/systemd/system/rtkit-daemon.service.d/override.conf
           sudo cp root-setup-files/qcom-iris.conf rootdir/etc/modprobe.d/qcom-iris.conf
           sudo cp root-setup-files/nabu-dsp.conf rootdir/etc/dracut.conf.d/nabu-dsp.conf
           sudo cp root-setup-files/nabu-dsp-boot.service rootdir/etc/systemd/system/nabu-dsp-boot.service
@@ -129,7 +131,6 @@ jobs:
           EOF
           
           sudo cp root-setup-files/xiaomi-nabu.sources rootdir/etc/apt/sources.list.d/xiaomi-nabu.sources
-          sudo cp root-setup-files/themojoman.gpg rootdir/etc/apt/keyrings/themojoman.gpg
           
           # Chroot execution: Phase 2 (Packages)
           sudo chroot rootdir /bin/bash <<EOF
@@ -179,7 +180,7 @@ jobs:
 
           sed -i '/ConditionKernelVersion/d' /lib/systemd/system/pd-mapper.service
           sed -i '/^totalmem/ s/^/#/' /usr/bin/init-zram-swapping
-          sed -i '/^mem/ s/.*/#&\nmem=10GiB/' /usr/bin/init-zram-swapping
+          sed -i '/^mem/ s/.*/#&\nmem=4GiB/' /usr/bin/init-zram-swapping
 
           # Clean up unused non-Qualcomm firmware blobs and apt cache to reduce rootfs size
           rm -rf /lib/firmware/{intel,nvidia,amdgpu,mediatek,radeon,cirrus,brcm,ti-connectivity,i915,mrvl} 2>/dev/null || true

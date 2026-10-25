@@ -53,7 +53,7 @@ sudo apt install -y xiaomi-nabu-firmware xiaomi-nabu-alsa hexagonrpcd libssc iio
 #### Step 2: Configure Dracut to Bundle DSP Firmware
 ```bash
 sudo tee /etc/dracut.conf.d/nabu-dsp.conf << 'EOF'
-install_items+=" /lib/firmware/qcom/sm8150/xiaomi/nabu/slpi_nb.mbn /lib/firmware/qcom/sm8150/xiaomi/nabu/adsp.mbn /lib/firmware/qcom/sm8150/xiaomi/nabu/cdsp.mbn "
+install_items+=" /lib/firmware/qcom/sm8150/xiaomi/nabu/slpi_nb.mbn /lib/firmware/qcom/sm8150/xiaomi/nabu/adsp.mbn /lib/firmware/qcom/sm8150/xiaomi/nabu/cdsp.mbn /lib/firmware/qcom/a630_sqe.fw /lib/firmware/qcom/a640_gmu.bin "
 EOF
 ```
 
