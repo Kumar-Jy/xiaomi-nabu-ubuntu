@@ -61,6 +61,10 @@ jobs:
             | jq -r '.created_at // ""')
           BUILD_DATE=$(date -d "$CREATED" +%d.%m.%Y 2>/dev/null || date +%d.%m.%Y)
 
+          # Detect kernel version from nabu-pkgs APT release
+          KERNEL_VER=$(curl -s https://api.github.com/repos/Kumar-Jy/nabu-pkgs/releases/tags/ubuntu | jq -r '.assets[] | select(.name | startswith("linux-image-") and (contains("dbg") | not)) | .name' 2>/dev/null | head -n1 | sed -n 's/.*linux-image-\([0-9]\+\.[0-9]\+[^_]*\).*/\1/p' || echo "7.3.3")
+          [ -z "$KERNEL_VER" ] && KERNEL_VER="7.3.3"
+
           mkdir -p release-files
 
           # 1. Download rEFInd artifact if available, or build from repo
@@ -102,7 +106,7 @@ jobs:
           cat > release-notes.md << BODY
           # 🚀 Ubuntu 26.04 (Resolute) for Xiaomi Pad 5 (nabu)
 
-          > **Build Date:** $BUILD_DATE &nbsp;|&nbsp; **Target Device:** Xiaomi Pad 5 (\`nabu\`) &nbsp;|&nbsp; **Kernel:** Linux 7.3 (\`linux-image-7.3.0-krjy\`)
+          > **Build Date:** $BUILD_DATE &nbsp;|&nbsp; **Target Device:** Xiaomi Pad 5 (\`nabu\`) &nbsp;|&nbsp; **Kernel:** Linux ${KERNEL_VER} (\`linux-image-${KERNEL_VER}\`)
 
           🔗 **Documentation & Project Links:**
           - 📜 **[README.md](https://github.com/$REPO/blob/$BRANCH/README.md)** — Full installation & flashing instructions

@@ -181,7 +181,7 @@ sudo ukify build \
   --devicetree="/boot/dtb-$KVER" \
   --cmdline="root=PARTLABEL=linux rw fw_devlink=permissive" \
   --uname="$KVER" \
-  --output="/mnt/esp/EFI/Ubuntu/7.3.0.efi"
+  --output="/mnt/esp/EFI/Ubuntu/${KVER}.efi"
 
 sudo sync && sudo umount /mnt/esp
 ```
@@ -253,7 +253,7 @@ If the kernel post-install script didn't generate your UKI automatically, genera
 
 ```bash
 # 1. Identify kernel version
-KVER=$(uname -r)   # or specify the newly installed version, e.g. 7.3.0-0
+KVER=$(uname -r)   # or specify the newly installed version, e.g. 7.3.3-0
 
 # 2. Mount the ESP partition (usually /dev/sda31 or /dev/disk/by-partlabel/esp)
 sudo mkdir -p /mnt/esp
