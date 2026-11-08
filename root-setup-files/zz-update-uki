@@ -84,7 +84,7 @@ fi
 # 2. If not mounted, probe for ESP partition candidates
 if [ "$COPIED" = false ]; then
     ESP_PART=""
-    for cand in /dev/disk/by-partlabel/esp /dev/disk/by-partlabel/ESPNABU /dev/disk/by-label/ESPNABU /dev/disk/by-label/esp /dev/sda31; do
+    for cand in /dev/disk/by-partlabel/esp /dev/disk/by-partlabel/cust /dev/block/by-name/cust /dev/disk/by-partlabel/ESPNABU /dev/disk/by-label/ESPNABU /dev/disk/by-label/esp /dev/sda31; do
         if [ -b "$cand" ]; then
             ESP_PART="$cand"
             break

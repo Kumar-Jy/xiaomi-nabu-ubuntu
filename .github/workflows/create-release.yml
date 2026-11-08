@@ -77,6 +77,11 @@ jobs:
             rm -rf ./tmp-refind
           fi
 
+          # 1b. Copy Aloha UEFI image
+          if [ -f fastboot-script/alohauefi.img ]; then
+            cp fastboot-script/alohauefi.img release-files/alohauefi.img
+          fi
+
           # 2. Generate get-ubuntu.sh download script
           NL_URL="https://nightly.link/$REPO/actions/runs/$RUN_ID/ubuntu-nabu-installer.zip"
           cat > release-files/get-ubuntu.sh << 'EOF_GET'
@@ -114,6 +119,7 @@ jobs:
 
           > **Attached Release Assets:**
           > - \`nabu-ubuntu-rEFInd.zip\` — Multi-boot UEFI bootloader only (TWRP flashable)
+          > - \`alohauefi.img\` — Aloha UEFI boot image for single-boot / fastboot flashing
           > - \`get-ubuntu.sh\` — Direct CLI download script (\`curl -fL ...\`)
 
           ---
@@ -126,10 +132,11 @@ jobs:
 
           ## 🛠️ Quick Installation Guide
 
-          ### Method 1: Fastboot (PC / OTG)
-          1. Reboot tablet into Fastboot mode (\`Power + Volume Down\`).
-          2. Extract \`ubuntu-nabu-installer.zip\`.
+          ### Method 1: Single Boot Fastboot (PC / Standalone Linux)
+          1. Extract \`ubuntu-nabu-installer.zip\` on your computer.
+          2. Reboot tablet into Fastboot mode (\`Power + Volume Down\`).
           3. Run \`./flash-linux.sh\` (Linux/macOS) or \`flash-linux.bat\` (Windows).
+             *(Or manual fastboot: \`fastboot flash boot_ab images/alohauefi.img\`, \`fastboot flash cust images/esp.img\`, \`fastboot flash userdata images/rootfs.img\`, \`fastboot reboot\`)*
 
           ### Method 2: Hybrid-TWRP (On-Device)
           1. Boot into [Hybrid-TWRP](https://github.com/Kumar-Jy/twrp_device_xiaomi_nabu/releases/tag/mod-hybrid).

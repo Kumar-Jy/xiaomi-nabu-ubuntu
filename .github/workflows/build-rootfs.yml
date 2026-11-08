@@ -42,7 +42,7 @@ jobs:
           
           # Create and format image
           truncate -s 12G rootfs.img
-          mkfs.ext4 rootfs.img
+          mkfs.ext4 -L ubuntu-root rootfs.img
           mkdir -p rootdir
           sudo mount -o loop rootfs.img rootdir
 
@@ -81,6 +81,9 @@ jobs:
           sudo cp root-setup-files/60-dma-heap.rules rootdir/etc/udev/rules.d/60-dma-heap.rules
           sudo cp root-setup-files/60-media.rules rootdir/etc/udev/rules.d/60-media.rules
           sudo cp root-setup-files/80-iio-sensor-proxy.rules rootdir/etc/udev/rules.d/80-iio-sensor-proxy.rules
+          sudo cp root-setup-files/99-nabu-partlabel.rules rootdir/etc/udev/rules.d/99-nabu-partlabel.rules
+          sudo mkdir -p rootdir/lib/udev/rules.d/
+          sudo cp root-setup-files/99-nabu-partlabel.rules rootdir/lib/udev/rules.d/99-nabu-partlabel.rules
           sudo cp root-setup-files/ov13b10.yaml rootdir/usr/share/libcamera/ipa/simple/ov13b10.yaml
           sudo cp root-setup-files/ov8856.yaml rootdir/usr/share/libcamera/ipa/simple/ov8856.yaml
           sudo cp root-setup-files/nabu-slpi.conf rootdir/usr/lib/systemd/system/hexagonrpcd.service.d/nabu-slpi.conf
@@ -229,6 +232,7 @@ jobs:
           resize2fs rootfs.img -M
           mkdir -p ./images
           mv ./rootfs.img ./images/
+          cp ./fastboot-script/alohauefi.img ./images/alohauefi.img
 
           # 2. Setup EFI directory
           mkdir -p ./efi
@@ -273,6 +277,14 @@ jobs:
             efi
             installer
             META-INF
+          retention-days: 90
+          compression-level: 5
+
+      - name: Upload Aloha UEFI Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: nabu-aloha-uefi
+          path: ./fastboot-script/alohauefi.img
           retention-days: 90
           compression-level: 5
 

@@ -97,17 +97,49 @@ If your device doesn't have the required `esp` and `linux` partitions:
 
 ### 3. Method B: Flash via Fastboot (PC / Mac / Linux)
 
-1. Extract `ubuntu-nabu-installer.zip` on your computer.
-2. Put the tablet into **Fastboot Mode** (Hold `Power + Volume Down`).
-3. Connect the tablet to your PC with USB.
-4. Run the flash script:
+#### Single-Boot (Standalone Ubuntu - No TWRP / No Repartitioning Needed)
+This method flashes Ubuntu as the sole operating system on your tablet directly from your PC via **Fastboot** into the existing `userdata` and `cust` partitions without repartitioning.
+
+1. Download the installer archive (`ubuntu-nabu-installer.zip`) from [Releases](https://github.com/Kumar-Jy/xiaomi-nabu-ubuntu/releases).
+2. Unzip the installer on your computer.
+3. Put the tablet into **Fastboot Mode** (Hold `Power + Volume Down`).
+4. Connect the tablet to your PC with USB.
+5. Run the flash script:
    - **Windows:** Double-click `flash-linux.bat`
    - **Linux / macOS:**
      ```bash
      chmod +x flash-linux.sh
      ./flash-linux.sh
      ```
-5. The script checks partition sizes, formats, flashes `rootfs.img` and `esp.img`, and reboots into rEFInd.
+   The script detects single-boot mode automatically, flashes Aloha UEFI (`alohauefi.img`) to `boot_ab`, formats/erases, and flashes `rootfs.img` to `userdata` and `esp.img` to `cust`.
+
+##### 🛠️ Manual Fastboot Commands (Single-Boot)
+If you prefer running the commands manually:
+```bash
+# 1. Flash Aloha UEFI to the boot partition (both slots)
+fastboot flash boot_ab images/alohauefi.img
+
+# 2. Flash ESP to the cust partition
+fastboot flash cust images/esp.img
+
+# 3. Flash rootfs to the userdata partition
+fastboot flash userdata images/rootfs.img
+
+# 4. Reboot into Ubuntu
+fastboot reboot
+```
+> [!NOTE]
+> `alohauefi.img` is included directly in the installer `images/` directory and fastboot package, and is also available as a standalone download from GitHub Releases.
+
+#### Dual-Boot / Triple-Boot (Existing `linux` and `esp` Partitions)
+If you have already partitioned your tablet with dedicated `linux` and `esp` partitions:
+- The script automatically detects `linux` and `esp` partitions and flashes `rootfs.img` and `esp.img` accordingly.
+- Or run manually:
+  ```bash
+  fastboot flash esp images/esp.img
+  fastboot flash linux images/rootfs.img
+  fastboot reboot
+  ```
 
 ---
 

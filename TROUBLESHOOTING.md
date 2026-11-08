@@ -272,6 +272,63 @@ sudo ukify build \
 sudo sync && sudo umount /mnt/esp
 ```
 
+### 🛠️ Fix from TWRP: Boot error `Timed out waiting for device /dev/disk/by-partlabel/linux`
+
+If rootfs was flashed onto `userdata` and ESP onto `cust` (Single-Boot) or an older UKI cannot find `/dev/disk/by-partlabel/linux`:
+
+#### For Single-Boot (`userdata` & `cust`):
+```bash
+adb shell
+mount /dev/block/by-name/userdata /linux
+mount /dev/block/by-name/cust /linux/boot/efi
+mount -t proc proc /linux/proc
+mount -t sysfs sys /linux/sys
+mount --bind /dev /linux/dev
+mount -t devpts devpts /linux/dev/pts
+ln -sf /proc/self/fd /linux/dev/fd
+
+# Ensure udev partition mapping rule is present
+mkdir -p /linux/etc/udev/rules.d
+cat << 'EOF' > /linux/etc/udev/rules.d/99-nabu-partlabel.rules
+ENV{ID_FS_LABEL}=="ubuntu-root", SYMLINK+="disk/by-partlabel/linux"
+ENV{ID_FS_LABEL}=="ESPNABU", SYMLINK+="disk/by-partlabel/esp"
+KERNEL=="userdata*", ENV{ID_FS_TYPE}=="ext4", TEST!="/dev/disk/by-partlabel/linux", SYMLINK+="disk/by-partlabel/linux"
+KERNEL=="cust*", ENV{ID_FS_TYPE}=="vfat", TEST!="/dev/disk/by-partlabel/esp", SYMLINK+="disk/by-partlabel/esp"
+EOF
+
+# Update fstab to accept userdata/cust or labels
+sed -i 's/PARTLABEL=linux/PARTLABEL=userdata/' /linux/etc/fstab 2>/dev/null || true
+sed -i 's/PARTLABEL=esp/PARTLABEL=cust/' /linux/etc/fstab 2>/dev/null || true
+
+# Regenerate UKI
+KVER=$(ls /linux/lib/modules | tail -n 1)
+TMPDIR=/tmp PATH=/usr/bin:/bin chroot /linux /etc/kernel/postinst.d/zz-update-uki "$KVER" /linux/boot/vmlinuz-"$KVER"
+
+# Unmount and reboot
+umount /linux/boot/efi /linux/dev/pts /linux/dev /linux/sys /linux/proc /linux
+reboot
+```
+
+#### For Dual-Boot (`linux` & `esp`):
+```bash
+adb shell
+mount /dev/block/by-name/linux /linux
+mount /dev/block/by-name/esp /linux/boot/efi
+mount -t proc proc /linux/proc
+mount -t sysfs sys /linux/sys
+mount --bind /dev /linux/dev
+mount -t devpts devpts /linux/dev/pts
+ln -sf /proc/self/fd /linux/dev/fd
+
+# Regenerate UKI
+KVER=$(ls /linux/lib/modules | tail -n 1)
+TMPDIR=/tmp PATH=/usr/bin:/bin chroot /linux /etc/kernel/postinst.d/zz-update-uki "$KVER" /linux/boot/vmlinuz-"$KVER"
+
+# Unmount and reboot
+umount /linux/boot/efi /linux/dev/pts /linux/dev /linux/sys /linux/proc /linux
+reboot
+```
+
 ---
 
 ## 4. Sensors, Auto-Rotation & Auto-Brightness
