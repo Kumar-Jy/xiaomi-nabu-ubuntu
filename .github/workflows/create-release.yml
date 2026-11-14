@@ -44,7 +44,7 @@ jobs:
           echo "Using run ID: $RUN_ID"
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y jq zip curl
+        run: sudo apt-get update && sudo apt-get install -y jq zip unzip curl
 
       - name: Prepare release assets and notes
         id: prepare
@@ -67,11 +67,19 @@ jobs:
 
           mkdir -p release-files
 
-          # 1. Download rEFInd artifact if available, or build from repo
-          if curl -sI "https://nightly.link/$REPO/actions/runs/$RUN_ID/nabu-ubuntu-rEFInd.zip" | grep -q "200\|302"; then
-            echo "Downloading nabu-ubuntu-rEFInd.zip from build run..."
-            curl -fL "https://nightly.link/$REPO/actions/runs/$RUN_ID/nabu-ubuntu-rEFInd.zip" -o release-files/nabu-ubuntu-rEFInd.zip
+          # 1. Download rEFInd artifact if available, or build from repo.
+          # nightly.link answers GET but not HEAD, so attempt the download we
+          # need anyway and fall back only if it fails.
+          if curl -fL --retry 3 --retry-delay 2 \
+               "https://nightly.link/$REPO/actions/runs/$RUN_ID/nabu-ubuntu-rEFInd.zip" \
+               -o release-files/nabu-ubuntu-rEFInd.zip; then
+            if ! unzip -l release-files/nabu-ubuntu-rEFInd.zip | grep -q ' installer/pe.img'; then
+              echo "ERROR: downloaded rEFInd artifact is missing installer/pe.img" >&2
+              exit 1
+            fi
+            echo "Downloaded nabu-ubuntu-rEFInd.zip from build run."
           else
+            rm -f release-files/nabu-ubuntu-rEFInd.zip
             echo "Packaging rEFInd from repository templates..."
             mkdir -p ./tmp-refind
             cp -r bin DBKP installer META-INF ./tmp-refind/ 2>/dev/null || true
