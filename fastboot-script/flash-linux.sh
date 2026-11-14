@@ -53,7 +53,7 @@ check_fits() {
         | sed -n "s/.*partition-size:$part:[[:space:]]*0x\([0-9a-fA-F]*\).*/\1/p" | head -n1)
     [ -n "$hex" ] || return 0
     part_bytes=$((16#$hex))
-    img_bytes=$(stat -c %s "$img")
+    img_bytes=$(wc -c < "$img" | tr -d '[:space:]')
     if [ "$img_bytes" -gt "$part_bytes" ]; then
         echo "Error: $(basename "$img") is $img_bytes bytes but $part is only $part_bytes bytes" >&2
         exit 1
