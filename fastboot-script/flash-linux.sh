@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -e
 
+# Script arguments are forwarded to every fastboot call; helpers below cannot use
+# "$@" (that is their own argument list), so keep a copy.
+FB_ARGS=("$@")
+
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Resolve images directory
@@ -24,16 +28,15 @@ echo "==> Checking connected device..."
 fastboot "$@" getvar product 2>&1 | grep -q 'product: *nabu' || { echo "Error: Device mismatch (expected nabu)"; exit 1; }
 
 # Determine partition layout: dual/multi-boot (linux/esp) vs single-boot (userdata/cust)
-HAS_LINUX=false
-HAS_ESP=false
-if fastboot "$@" getvar partition-size:linux 2>&1 | grep -q "partition-size:linux:[[:space:]]*[1-9]"; then
-    HAS_LINUX=true
-fi
-if fastboot "$@" getvar partition-size:esp 2>&1 | grep -q "partition-size:esp:[[:space:]]*[1-9]"; then
-    HAS_ESP=true
-fi
+# fastboot reports partition sizes as hexadecimal (e.g. "0x1D2000000"), so match
+# the 0x form instead of a leading [1-9]. Getting this wrong silently selects the
+# single-boot layout and overwrites userdata/cust on a dual-boot device.
+has_part() {
+    fastboot "${FB_ARGS[@]}" getvar "partition-size:$1" 2>&1 \
+        | grep -qE "partition-size:$1:[[:space:]]*(0x[0-9a-fA-F]*[1-9a-fA-F][0-9a-fA-F]*|[1-9][0-9]*)"
+}
 
-if [ "$HAS_LINUX" = true ] && [ "$HAS_ESP" = true ]; then
+if has_part linux && has_part esp; then
     echo "==> Detected dual/multi-boot partition layout (linux + esp)"
     ROOT_PART="linux"
     ESP_PART="esp"
@@ -41,6 +44,32 @@ else
     echo "==> Using single-boot partition layout (userdata + cust)"
     ROOT_PART="userdata"
     ESP_PART="cust"
+fi
+
+# Abort early if the images cannot fit, rather than flashing a truncated image.
+check_fits() {
+    local part="$1" img="$2" hex part_bytes img_bytes
+    hex=$(fastboot "${FB_ARGS[@]}" getvar "partition-size:$part" 2>&1 \
+        | sed -n "s/.*partition-size:$part:[[:space:]]*0x\([0-9a-fA-F]*\).*/\1/p" | head -n1)
+    [ -n "$hex" ] || return 0
+    part_bytes=$((16#$hex))
+    img_bytes=$(stat -c %s "$img")
+    if [ "$img_bytes" -gt "$part_bytes" ]; then
+        echo "Error: $(basename "$img") is $img_bytes bytes but $part is only $part_bytes bytes" >&2
+        exit 1
+    fi
+}
+
+check_fits "$ROOT_PART" "$ROOTFS"
+check_fits "$ESP_PART" "$ESP"
+
+echo "WARNING: this will overwrite the '$ROOT_PART' and '$ESP_PART' partitions."
+echo "         Any existing data on them (including EFI/Microsoft on the ESP) is lost."
+if [ -t 0 ]; then
+    read -r -p "Type 'yes' to continue: " CONFIRM
+    [ "$CONFIRM" = "yes" ] || { echo "Aborted."; exit 1; }
+else
+    echo "==> Non-interactive run, continuing."
 fi
 
 # 1. Flash Aloha UEFI to boot partition (both slots)
@@ -55,18 +84,14 @@ else
     echo "Note: alohauefi.img not found in images/, skipping boot partition flash."
 fi
 
-# 2. Erase target partitions
-echo "==> Erasing $ROOT_PART and $ESP_PART..."
-fastboot "$@" erase "$ROOT_PART" || { echo "Error erasing $ROOT_PART"; exit 1; }
-fastboot "$@" erase "$ESP_PART" || { echo "Error erasing $ESP_PART"; exit 1; }
-
-# 3. Flash rootfs and ESP
+# 2. Flash rootfs and ESP (fastboot flash writes the whole image; a separate
+#    erase only widens the window for a half-flashed, unbootable device)
 echo "==> Flashing rootfs ($ROOTFS) to $ROOT_PART..."
 fastboot "$@" flash "$ROOT_PART" "$ROOTFS" || { echo "Error flashing rootfs to $ROOT_PART"; exit 1; }
 
 echo "==> Flashing ESP ($ESP) to $ESP_PART..."
 fastboot "$@" flash "$ESP_PART" "$ESP" || { echo "Error flashing ESP to $ESP_PART"; exit 1; }
 
-# 4. Reboot
+# 3. Reboot
 echo "==> Flashing completed successfully! Rebooting..."
 fastboot "$@" reboot || { echo "Error rebooting device"; exit 1; }

@@ -4,6 +4,17 @@ All notable changes to **Ubuntu Linux for Xiaomi Pad 5 (nabu)** are documented h
 
 ---
 
+## [Build 2026-11-14] - Release Integrity
+
+### 🔐 Download Integrity
+- Ubuntu base tarball is verified against the release's published `SHA256SUMS`; the dead beta fallback was removed.
+- WinPE image is pinned and verified against its upstream SHA-256.
+
+### 🩺 Sensors
+- Added `nabu-sensors.pref` so a future Ubuntu `iio-sensor-proxy`/`libssc` upload cannot silently replace the patched SSC fork.
+
+---
+
 ## [Build 2026-10-22] - All-in-One Installer & Kernel Fixes
 
 ### 🚀 Installer & Flashing

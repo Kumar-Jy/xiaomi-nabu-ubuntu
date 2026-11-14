@@ -1,0 +1,10 @@
+# Xiaomi Pad 5 (nabu)
+#
+# The SSC accelerometer is mounted rotated 180 degrees relative to the device
+# body, so iio-sensor-proxy has to invert the X and Y axes.
+#
+# This is a separate file from the package's /usr/lib/udev/rules.d/80-iio-sensor-proxy.rules
+# on purpose: dropping a same-named rule into /etc would shadow the packaged
+# rule (which classifies ssc-accel/ssc-light/ssc-compass/ssc-proximity) and
+# would keep shadowing it after iio-sensor-proxy is upgraded.
+SUBSYSTEM=="misc", KERNEL=="fastrpc-sdsp*", ENV{ACCEL_MOUNT_MATRIX}="-1,0,0;0,-1,0;0,0,1"

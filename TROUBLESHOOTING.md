@@ -104,26 +104,20 @@ sudo ln -sfn /mnt/vendor/persist/sensors /lib/firmware/hexagonfs/sensors
 sudo ln -sfn /mnt/vendor/persist /lib/firmware/hexagonfs/mnt/vendor/persist
 sudo chown -R fastrpc:fastrpc /lib/firmware/hexagonfs 2>/dev/null || true
 
-# 3. Configure hexagonrpcd systemd drop-in
-sudo mkdir -p /usr/lib/systemd/system/hexagonrpcd.service.d
-sudo tee /usr/lib/systemd/system/hexagonrpcd.service.d/nabu-slpi.conf << 'EOF'
+# 3. Configure hexagonrpcd systemd drop-in (in /etc so package upgrades apply)
+sudo mkdir -p /etc/systemd/system/hexagonrpcd.service.d
+sudo tee /etc/systemd/system/hexagonrpcd.service.d/10-nabu-persist.conf << 'EOF'
 [Unit]
-StartLimitIntervalSec=0
 RequiresMountsFor=/mnt/vendor/persist
 
 [Service]
-Restart=always
-RestartSec=2s
-Environment="hexagonrpcd_device=/dev/fastrpc-sdsp"
-Environment="hexagonrpcd_dsp=sdsp"
-Environment="hexagonrpcd_fw_dir=/lib/firmware/hexagonfs"
-Environment="hexagonrpcd_extra=-s"
 ReadOnlyPaths=/mnt/vendor/persist /persist /lib/firmware/hexagonfs /sys/devices/soc0
 EOF
 
 # 4. Configure iio-sensor-proxy systemd drop-in
-sudo mkdir -p /usr/lib/systemd/system/iio-sensor-proxy.service.d
-sudo tee /usr/lib/systemd/system/iio-sensor-proxy.service.d/nabu-ssc.conf << 'EOF'
+# (same filename in /etc overrides the copy shipped by nabu-tablet-mode)
+sudo mkdir -p /etc/systemd/system/iio-sensor-proxy.service.d
+sudo tee /etc/systemd/system/iio-sensor-proxy.service.d/nabu-ssc.conf << 'EOF'
 [Unit]
 Wants=hexagonrpcd.service
 After=hexagonrpcd.service
@@ -157,7 +151,9 @@ sudo udevadm trigger
 
 # 7. Enable hardware daemons
 sudo systemctl daemon-reload
-sudo systemctl enable --now qrtr-ns.service rmtfs.service tqftpserv.service pd-mapper.service
+sudo systemctl enable --now qrtr-ns.service rmtfs.service tqftpserv.service
+# pd-mapper stays masked: hexagonrpcd masks it because the kernel provides
+# QCOM_PD_MAPPER and the userspace mapper races it over QRTR.
 sudo systemctl enable --now hexagonrpcd.service nabu-pmac.service nabu-tablet-mode.service
 sudo systemctl --global enable nabu-autobrightness.service
 sudo systemctl restart hexagonrpcd.service
@@ -302,7 +298,7 @@ sed -i 's/PARTLABEL=esp/PARTLABEL=cust/' /linux/etc/fstab 2>/dev/null || true
 
 # Regenerate UKI
 KVER=$(ls /linux/lib/modules | tail -n 1)
-TMPDIR=/tmp PATH=/usr/bin:/bin chroot /linux /etc/kernel/postinst.d/zz-update-uki "$KVER" /linux/boot/vmlinuz-"$KVER"
+TMPDIR=/tmp PATH=/usr/bin:/bin chroot /linux /etc/kernel/postinst.d/zz-update-uki "$KVER" "/boot/vmlinuz-$KVER"
 
 # Unmount and reboot
 umount /linux/boot/efi /linux/dev/pts /linux/dev /linux/sys /linux/proc /linux
@@ -322,7 +318,7 @@ ln -sf /proc/self/fd /linux/dev/fd
 
 # Regenerate UKI
 KVER=$(ls /linux/lib/modules | tail -n 1)
-TMPDIR=/tmp PATH=/usr/bin:/bin chroot /linux /etc/kernel/postinst.d/zz-update-uki "$KVER" /linux/boot/vmlinuz-"$KVER"
+TMPDIR=/tmp PATH=/usr/bin:/bin chroot /linux /etc/kernel/postinst.d/zz-update-uki "$KVER" "/boot/vmlinuz-$KVER"
 
 # Unmount and reboot
 umount /linux/boot/efi /linux/dev/pts /linux/dev /linux/sys /linux/proc /linux
@@ -362,9 +358,16 @@ Sensors on SM8150 run on the Hexagon SLPI DSP (Sensor Low Power Island). On boot
    sudo apt install -y hexagonrpcd libssc iio-sensor-proxy qrtr-tools
    ```
 
+   > [!NOTE]
+   > The image ships `/etc/apt/preferences.d/nabu-sensors.pref`, which keeps
+   > `iio-sensor-proxy` and `libssc` from the nabu repository ahead of a newer
+   > Ubuntu archive version. Keep it if you rely on the SSC/auto-rotation patches.
+
 3. **Ensure `ssc-accel` is present in udev rules:**
    ```bash
-   sudo sed -i 's/ssc-light/ssc-accel ssc-light/g' /usr/lib/udev/rules.d/80-iio-sensor-proxy.rules 2>/dev/null || true
+   # Current iio-sensor-proxy already tags ssc-accel; this only repairs older images.
+   grep -q 'ssc-accel' /usr/lib/udev/rules.d/80-iio-sensor-proxy.rules || \
+     sudo sed -i 's/ssc-light/ssc-accel ssc-light/g' /usr/lib/udev/rules.d/80-iio-sensor-proxy.rules
    sudo udevadm control --reload
    sudo udevadm trigger --subsystem-match=misc
    ```
@@ -522,7 +525,7 @@ nabu-tablet-toggle
 | Feature | Service / Package | Configuration File | Verification Command |
 | :--- | :--- | :--- | :--- |
 | **Sensors** | `hexagonrpcd` + `libssc` | `/lib/firmware/hexagonfs/` | `ssccli --sensor accelerometer` |
-| **Auto-Rotation** | `iio-sensor-proxy` | `/etc/udev/rules.d/80-iio-sensor-proxy.rules` | `busctl get-property net.hadess.SensorProxy /net/hadess/SensorProxy net.hadess.SensorProxy HasAccelerometer` |
+| **Auto-Rotation** | `iio-sensor-proxy` | `/usr/lib/udev/rules.d/80-iio-sensor-proxy.rules` + `/etc/udev/rules.d/61-nabu-accel-matrix.rules` | `busctl get-property net.hadess.SensorProxy /net/hadess/SensorProxy net.hadess.SensorProxy HasAccelerometer` |
 | **Video HW Decode** | `qcom-iris` | `/etc/modprobe.d/qcom-iris.conf` | `v4l2-ctl -d /dev/video0 --all` |
 | **Cameras** | `libcamera-tools` | Device tree CAMSS | `cam --list` |
 | **Audio** | `xiaomi-nabu-alsa` | `/usr/share/alsa/ucm2/` | `alsamixer` |

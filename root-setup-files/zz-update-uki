@@ -47,6 +47,7 @@ fi
 CLEAN_KVER="${KVER//-xiaomi-nabu-tmm/}"
 OUTPUT_EFI="${CLEAN_KVER}.efi"
 TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
 TMP_EFI="$TMP_DIR/$OUTPUT_EFI"
 
 echo "zz-update-uki: Generating UKI for kernel $KVER ($OUTPUT_EFI)..."
@@ -63,9 +64,11 @@ if [ -f "$DTB_FILE" ]; then
     UKIFY_ARGS+=(--devicetree "$DTB_FILE")
 fi
 
-if [ -f "/boot/initrd.img-$KVER" ]; then
-    UKIFY_ARGS+=(--initrd "/boot/initrd.img-$KVER")
-fi
+[ -f "$KERNEL_IMG" ] || { echo "zz-update-uki: ERROR: kernel image $KERNEL_IMG not found" >&2; exit 1; }
+
+# An initrd-less UKI is not bootable for this rootfs (PARTLABEL=linux, dracut).
+[ -f "/boot/initrd.img-$KVER" ] || { echo "zz-update-uki: ERROR: /boot/initrd.img-$KVER missing; refusing to build an initrd-less UKI" >&2; exit 1; }
+UKIFY_ARGS+=(--initrd "/boot/initrd.img-$KVER")
 
 "$UKIFY_BIN" "${UKIFY_ARGS[@]}"
 

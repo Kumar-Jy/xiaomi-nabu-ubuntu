@@ -1,0 +1,9 @@
+# Keep the nabu-pkgs sensor stack ahead of the Ubuntu archive.
+#
+# iio-sensor-proxy is a patched fork (SSC support + nabu fixes) versioned
+# 3.9-1nabu1. Without this pin, a future Ubuntu 3.10/4.x upload would win the
+# normal apt upgrade comparison and silently replace the fork, breaking
+# auto-rotation and ambient brightness.
+Package: iio-sensor-proxy libssc
+Pin: release o=Kumar-Jy, l=nabu-ubuntu
+Pin-Priority: 1001

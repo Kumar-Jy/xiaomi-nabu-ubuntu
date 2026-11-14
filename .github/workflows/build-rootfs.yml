@@ -47,13 +47,29 @@ jobs:
           sudo mount -o loop rootfs.img rootdir
 
           # Download and Extract Ubuntu Base
-          URL="https://cdimage.ubuntu.com/ubuntu-base/releases/$VERSION/release/ubuntu-base-$VERSION-base-arm64.tar.gz"
-          if ! curl -sI "$URL" | grep -q "200"; then
-            URL="https://cdimage.ubuntu.com/ubuntu-base/releases/$VERSION/beta/ubuntu-base-$VERSION-beta-base-arm64.tar.gz"
+          # Pin the tarball to the release directory and verify it against the
+          # SHA256SUMS published there. The old beta fallback silently fetched a
+          # different (and now nonexistent) image when a release disappeared.
+          BASE_DIR="https://cdimage.ubuntu.com/ubuntu-base/releases/$VERSION/release"
+          BASE_TARBALL="ubuntu-base-$VERSION-base-arm64.tar.gz"
+          BASE_URL="$BASE_DIR/$BASE_TARBALL"
+
+          curl -fsSL "$BASE_DIR/SHA256SUMS" -o ubuntu-base.SHA256SUMS
+          EXPECTED_SHA=$(awk -v f="$BASE_TARBALL" '{n=$2; sub(/^\*/,"",n)} n==f {print $1}' ubuntu-base.SHA256SUMS)
+          if [ -z "$EXPECTED_SHA" ]; then
+            echo "ERROR: $BASE_TARBALL is not listed in $BASE_DIR/SHA256SUMS" >&2
+            exit 1
           fi
-          
-          wget -q $URL -O ubuntu-base.tar.gz
-          sudo tar xzvf ubuntu-base.tar.gz -C rootdir
+
+          curl -fL --retry 3 --retry-delay 5 "$BASE_URL" -o ubuntu-base.tar.gz
+          ACTUAL_SHA=$(sha256sum ubuntu-base.tar.gz | awk '{print $1}')
+          if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+            echo "ERROR: checksum mismatch for $BASE_TARBALL" >&2
+            echo "  expected: $EXPECTED_SHA" >&2
+            echo "  actual:   $ACTUAL_SHA" >&2
+            exit 1
+          fi
+          sudo tar xzf ubuntu-base.tar.gz -C rootdir
 
           # Setup Config Files & Fixes
           sudo mkdir -p rootdir/var/lib/gdm3/.config
@@ -67,9 +83,8 @@ jobs:
           sudo mkdir -p rootdir/etc/kernel/postinst.d
           sudo mkdir -p rootdir/etc/kernel/postrm.d
           sudo mkdir -p rootdir/usr/share/libcamera/ipa/simple
-          sudo mkdir -p rootdir/usr/lib/systemd/system/hexagonrpcd.service.d
-          sudo mkdir -p rootdir/usr/lib/systemd/system/iio-sensor-proxy.service.d
-          sudo mkdir -p rootdir/usr/lib/systemd/system/rtkit-daemon.service.d
+          sudo mkdir -p rootdir/etc/systemd/system/hexagonrpcd.service.d
+          sudo mkdir -p rootdir/etc/systemd/system/rtkit-daemon.service.d
 
           sudo cp root-setup-files/monitors.xml rootdir/var/lib/gdm3/.config/monitors.xml
           sudo cp root-setup-files/monitors.xml rootdir/etc/skel/.config/monitors.xml
@@ -77,18 +92,21 @@ jobs:
           sudo cp root-setup-files/user rootdir/etc/skel/.config/dconf/
           sudo cp root-setup-files/bash_aliases rootdir/etc/skel/.bash_aliases
           sudo cp root-setup-files/no-kdump.pref rootdir/etc/apt/preferences.d/no-kdump.pref
+          sudo cp root-setup-files/nabu-sensors.pref rootdir/etc/apt/preferences.d/nabu-sensors.pref
           sudo cp root-setup-files/61-dev-root.rules rootdir/etc/udev/rules.d/61-dev-root.rules
           sudo cp root-setup-files/60-dma-heap.rules rootdir/etc/udev/rules.d/60-dma-heap.rules
           sudo cp root-setup-files/60-media.rules rootdir/etc/udev/rules.d/60-media.rules
-          sudo cp root-setup-files/80-iio-sensor-proxy.rules rootdir/etc/udev/rules.d/80-iio-sensor-proxy.rules
+          sudo cp root-setup-files/61-nabu-accel-matrix.rules rootdir/etc/udev/rules.d/61-nabu-accel-matrix.rules
           sudo cp root-setup-files/99-nabu-partlabel.rules rootdir/etc/udev/rules.d/99-nabu-partlabel.rules
           sudo mkdir -p rootdir/lib/udev/rules.d/
           sudo cp root-setup-files/99-nabu-partlabel.rules rootdir/lib/udev/rules.d/99-nabu-partlabel.rules
           sudo cp root-setup-files/ov13b10.yaml rootdir/usr/share/libcamera/ipa/simple/ov13b10.yaml
           sudo cp root-setup-files/ov8856.yaml rootdir/usr/share/libcamera/ipa/simple/ov8856.yaml
-          sudo cp root-setup-files/nabu-slpi.conf rootdir/usr/lib/systemd/system/hexagonrpcd.service.d/nabu-slpi.conf
-          sudo cp root-setup-files/nabu-ssc.conf rootdir/usr/lib/systemd/system/iio-sensor-proxy.service.d/nabu-ssc.conf
-          sudo cp root-setup-files/rtkit-daemon.conf rootdir/usr/lib/systemd/system/rtkit-daemon.service.d/override.conf
+          sudo cp root-setup-files/nabu-slpi.conf rootdir/etc/systemd/system/hexagonrpcd.service.d/10-nabu-persist.conf
+          # iio-sensor-proxy drop-in comes from the nabu-tablet-mode package itself.
+          # Copying a same-named file into /usr/lib here just got overwritten by
+          # that package, so the image silently shipped the package version.
+          sudo cp root-setup-files/rtkit-daemon.conf rootdir/etc/systemd/system/rtkit-daemon.service.d/override.conf
           sudo cp root-setup-files/qcom-iris.conf rootdir/etc/modprobe.d/qcom-iris.conf
           sudo cp root-setup-files/nabu-dsp.conf rootdir/etc/dracut.conf.d/nabu-dsp.conf
           sudo cp root-setup-files/nabu-dsp-boot.service rootdir/etc/systemd/system/nabu-dsp-boot.service
@@ -112,13 +130,14 @@ jobs:
 
           # Chroot execution: Phase 1 (Locales & Keys)
           sudo chroot rootdir /bin/bash <<EOF
+          set -e
           export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:\$PATH
           export DEBIAN_FRONTEND=noninteractive
           export LANG=C.UTF-8
           export LC_ALL=C.UTF-8
           
           # 1. Update the lists
-          apt update || true 
+          apt update
           
           # 2. Install certificates and gnupg first
           apt install -y locales ca-certificates gnupg
@@ -137,6 +156,7 @@ jobs:
           
           # Chroot execution: Phase 2 (Packages)
           sudo chroot rootdir /bin/bash <<EOF
+          set -e
           export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:\$PATH
           export DEBIAN_FRONTEND=noninteractive
           export LANG=en_US.UTF-8
@@ -147,13 +167,18 @@ jobs:
           apt install -y rmtfs protection-domain-mapper tqftpserv qrtr-tools
           apt install -y systemd-boot-efi systemd-ukify 
           apt install -y xiaomi-nabu-alsa xiaomi-nabu-firmware
-          apt install -y hexagonrpcd libssc iio-sensor-proxy || true
-          apt install -y nabu-tablet-mode nabu-autobrightness nabu-torch nabu-pmac || true
-          apt install -y libcamera-tools gstreamer1.0-libcamera libspa-0.2-libcamera v4l-utils || true
-          apt install -y gnome-software gnome-software-plugin-snap || true
-          apt install -y 'linux-image-7.3*' 'linux-headers-7.3*'
+          apt install -y hexagonrpcd libssc iio-sensor-proxy
+          apt install -y nabu-tablet-mode nabu-autobrightness nabu-torch nabu-pmac
+          apt install -y iris-vaapi
+          apt install -y libcamera-tools gstreamer1.0-libcamera libspa-0.2-libcamera v4l-utils || echo "WARNING: optional camera packages failed" >&2
+          apt install -y gnome-software gnome-software-plugin-snap || echo "WARNING: optional gnome-software packages failed" >&2
+          # Pick the newest non-dbg kernel explicitly: the 'linux-image-7.3*' glob
+          # also matched linux-image-*-dbg and shipped ~80MB of debug symbols.
+          KERNEL_VER=\$(apt-cache pkgnames 'linux-image-7.3' | sed -n 's/^linux-image-\(.*\)\$/\1/p' | grep -v -- '-dbg\$' | sort -V | tail -n1)
+          [ -n "\$KERNEL_VER" ] || { echo "ERROR: no linux-image-7.3* package found in the nabu repo" >&2; exit 1; }
+          apt install -y "linux-image-\$KERNEL_VER" "linux-headers-\$KERNEL_VER"
           apt install -y zram-config
-          apt install -y $EXTRA_PACKAGES
+          if [ -n "$EXTRA_PACKAGES" ]; then apt install -y $EXTRA_PACKAGES; fi
           apt --fix-broken install -y
           
           apt install -y ubuntu-desktop
@@ -181,12 +206,22 @@ jobs:
             sed -i 's/^#*ADD_EXTRA_GROUPS=.*/ADD_EXTRA_GROUPS=1/' /etc/adduser.conf
           fi
 
-          sed -i '/ConditionKernelVersion/d' /lib/systemd/system/pd-mapper.service
-          sed -i '/^totalmem/ s/^/#/' /usr/bin/init-zram-swapping
-          sed -i '/^mem/ s/.*/#&\nmem=4GiB/' /usr/bin/init-zram-swapping
+          # The nabu kernel has QCOM_PD_MAPPER built in and the userspace mapper
+          # races it over QRTR, so hexagonrpcd's postinst masks pd-mapper. Make
+          # that explicit instead of the old "enable pd-mapper" line, which could
+          # never take effect, and do not patch ConditionKernelVersion on a unit
+          # that is masked anyway.
+          systemctl mask pd-mapper.service 2>/dev/null || true
+          if [ -f /usr/bin/init-zram-swapping ]; then
+            sed -i '/^totalmem/ s/^/#/' /usr/bin/init-zram-swapping
+            sed -i '/^mem/ s/.*/#&\nmem=4GiB/' /usr/bin/init-zram-swapping
+          else
+            echo "WARNING: /usr/bin/init-zram-swapping missing; zram sizing left at default" >&2
+          fi
 
-          # Clean up unused non-Qualcomm firmware blobs and apt cache to reduce rootfs size
-          rm -rf /lib/firmware/{intel,nvidia,amdgpu,mediatek,radeon,cirrus,brcm,ti-connectivity,i915,mrvl} 2>/dev/null || true
+          # Clean up unused non-Qualcomm firmware blobs and apt cache to reduce rootfs size.
+          # 'cirrus' is intentionally kept: it carries the CS35L41 speaker-amp firmware.
+          rm -rf /lib/firmware/{intel,nvidia,amdgpu,mediatek,radeon,brcm,ti-connectivity,i915,mrvl} 2>/dev/null || true
           apt clean
           rm -rf /var/lib/apt/lists/*
 
@@ -198,8 +233,17 @@ jobs:
           systemctl enable nabu-tablet-mode.service || true
           systemctl --global enable nabu-autobrightness.service || true
           systemctl enable iio-sensor-proxy.service || true
-          systemctl enable rmtfs.service tqftpserv.service pd-mapper.service || true
+          systemctl enable rmtfs.service tqftpserv.service || true
           systemctl enable nabu-dsp-boot.service || true
+
+          # Final sanity checks: never publish an image that silently lost a
+          # required package (they used to be installed with '|| true').
+          for pkg in xiaomi-nabu-firmware xiaomi-nabu-alsa hexagonrpcd libssc \
+                     iio-sensor-proxy nabu-tablet-mode nabu-autobrightness \
+                     nabu-torch nabu-pmac iris-vaapi "linux-image-\$KERNEL_VER"; do
+            dpkg -s "\$pkg" >/dev/null 2>&1 || { echo "ERROR: required package \$pkg is not installed" >&2; exit 1; }
+          done
+          dpkg -s ubuntu-desktop >/dev/null 2>&1 || { echo "ERROR: ubuntu-desktop is not installed" >&2; exit 1; }
           EOF
 
           # fstab (keeping commented lines)
@@ -258,9 +302,14 @@ jobs:
           sudo umount ./esp-mount
           rmdir ./esp-mount
 
-          # 4. Download WinPE image
+          # 4. Download WinPE image and verify it against the digest published
+          # by the upstream GitHub release (the asset API exposes sha256
+          # digests). A partial/corrupt download used to be packaged silently.
           mkdir -p ./installer
-          wget "https://github.com/WOAFlasher/WinInstaller/releases/download/WinPE/WinPE23H2.img" -qO ./installer/pe.img
+          WINPE_URL="https://github.com/WOAFlasher/WinInstaller/releases/download/WinPE/WinPE23H2.img"
+          WINPE_SHA256="5fd49df48b95671cc4a0026c31ea380e16a11761b9d0cdc2c5f1f8feeef897e7"
+          curl -fL --retry 3 --retry-delay 5 "$WINPE_URL" -o ./installer/pe.img
+          echo "$WINPE_SHA256  ./installer/pe.img" | sha256sum -c -
 
           # 5. Copy fastboot flash scripts
           cp ./fastboot-script/flash-linux.bat .

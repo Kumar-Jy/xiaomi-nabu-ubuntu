@@ -2,11 +2,25 @@
 set -e
 
 # 1. Determine Kernel Version
-KVER=$(dpkg-query --show --showformat='${Version}' "$DPKG_MAINTSCRIPT_PACKAGE")
+# Debian kernel maintainer scripts are called as `postinst <action> <version>`;
+# $1 is the kernel release (e.g. 7.3.3-krjy). The package Version field is NOT
+# a kernel release (it is 7.3.3-3 here), so never use it for file names.
+KVER="${1:-}"
+if [ -z "$KVER" ]; then
+    KVER="${DPKG_MAINTSCRIPT_PACKAGE#linux-image-}"
+fi
 
 if [ -z "$KVER" ]; then
-    echo "Error: Could not determine kernel version."
+    echo "Error: Could not determine kernel version." >&2
     exit 1
+fi
+
+# Skip non-configure actions (abort-upgrade, remove, ...).
+if [ -n "${DEB_MAINT_PARAMS-}" ]; then
+    eval set -- "$DEB_MAINT_PARAMS"
+    if [ -n "${1-}" ] && [ "$1" != "configure" ]; then
+        exit 0
+    fi
 fi
 
 # 2. Dynamically determine Root Partition Label
@@ -21,6 +35,7 @@ fi
 # 3. Format the EFI filename and command line
 CLEAN_KVER="${KVER//-xiaomi-nabu-tmm/}"
 OUTPUT_EFI="${CLEAN_KVER}.efi"
+OUTPUT_PATH="/boot/${OUTPUT_EFI}"
 CMDLINE="root=PARTLABEL=$ROOT_LABEL rw fw_devlink=permissive"
 
 BOOT_DIR="/boot"
@@ -43,7 +58,7 @@ if [ -f "$KERNEL_IMG" ] && [ -n "$UKIFY_BIN" ]; then
         --linux "$KERNEL_IMG"
         --cmdline "$CMDLINE"
         --uname "$KVER"
-        --output "$OUTPUT_EFI"
+        --output "$OUTPUT_PATH"
     )
 
     if [ -f "$DTB_FILE" ]; then
@@ -56,8 +71,11 @@ if [ -f "$KERNEL_IMG" ] && [ -n "$UKIFY_BIN" ]; then
     fi
 
     "$UKIFY_BIN" "${UKIFY_ARGS[@]}"
+elif [ ! -f "$KERNEL_IMG" ]; then
+    echo "Error: kernel image $KERNEL_IMG not found." >&2
+    exit 1
 else
-    echo "Error: Kernel image or ukify not found. Skipping UKI generation."
+    echo "Notice: ukify not found. Skipping UKI generation." >&2
     exit 0
 fi
 
@@ -66,7 +84,7 @@ COPIED=false
 
 if mountpoint -q /boot/efi 2>/dev/null; then
     mkdir -p "/boot/efi/EFI/Ubuntu"
-    cp "$OUTPUT_EFI" "/boot/efi/EFI/Ubuntu/"
+    cp "$OUTPUT_PATH" "/boot/efi/EFI/Ubuntu/"
     sync "/boot/efi/EFI/Ubuntu/$OUTPUT_EFI" 2>/dev/null || true
     echo "Success: $OUTPUT_EFI copied to mounted ESP (/boot/efi/EFI/Ubuntu/)."
     COPIED=true
@@ -88,7 +106,7 @@ if [ "$COPIED" = false ]; then
             echo "Attempt $i: Mounting ESP ($ESP_PART)..."
             if mount "$ESP_PART" "$MNT_TMP" 2>/dev/null; then
                 mkdir -p "$DEST_DIR"
-                cp "$OUTPUT_EFI" "$DEST_DIR/"
+                cp "$OUTPUT_PATH" "$DEST_DIR/"
                 sync "$DEST_DIR/$OUTPUT_EFI" 2>/dev/null || true
                 echo "Success: $OUTPUT_EFI copied to ESP ($DEST_DIR/)."
                 umount "$MNT_TMP"
@@ -102,11 +120,10 @@ if [ "$COPIED" = false ]; then
 fi
 
 if [ "$COPIED" = false ]; then
-    echo "Notice: ESP not available or mount failed. Copied .efi file to /boot/"
-    cp "$OUTPUT_EFI" /boot/
+    echo "Notice: ESP not available or mount failed. UKI kept at $OUTPUT_PATH"
 fi
 
 # 7. Cleanup
-rm -f "$OUTPUT_EFI"
+# The UKI is written to /boot, so there is nothing to remove here.
 
 exit 0
