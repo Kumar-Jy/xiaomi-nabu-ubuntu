@@ -172,10 +172,13 @@ jobs:
           apt install -y iris-vaapi
           apt install -y libcamera-tools gstreamer1.0-libcamera libspa-0.2-libcamera v4l-utils || echo "WARNING: optional camera packages failed" >&2
           apt install -y gnome-software gnome-software-plugin-snap || echo "WARNING: optional gnome-software packages failed" >&2
-          # Pick the newest non-dbg kernel explicitly: the 'linux-image-7.3*' glob
-          # also matched linux-image-*-dbg and shipped ~80MB of debug symbols.
-          KERNEL_VER=\$(apt-cache pkgnames 'linux-image-7.3' | sed -n 's/^linux-image-\(.*\)\$/\1/p' | grep -v -- '-dbg\$' | sort -V | tail -n1)
-          [ -n "\$KERNEL_VER" ] || { echo "ERROR: no linux-image-7.3* package found in the nabu repo" >&2; exit 1; }
+          # Pick the newest non-dbg kernel the nabu repo currently publishes.
+          # Do not hardcode a kernel series: a future 7.4/7.5 upload is picked up
+          # without touching this file. The repo-origin filter keeps an Ubuntu
+          # kernel with a similar name from ever winning, and excluding -dbg
+          # avoids shipping ~80MB of debug symbols.
+          KERNEL_VER=\$(apt-cache madison \$(apt-cache pkgnames 'linux-image-' | grep -v -- '-dbg\$') 2>/dev/null | grep 'Kumar-Jy/nabu-pkgs' | cut -d'|' -f1 | tr -d ' ' | sed 's/^linux-image-//' | sort -V | tail -n1)
+          [ -n "\$KERNEL_VER" ] || { echo "ERROR: no linux-image package found in the nabu repo" >&2; exit 1; }
           apt install -y "linux-image-\$KERNEL_VER" "linux-headers-\$KERNEL_VER"
           apt install -y zram-config
           if [ -n "$EXTRA_PACKAGES" ]; then apt install -y $EXTRA_PACKAGES; fi

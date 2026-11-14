@@ -114,21 +114,12 @@ RequiresMountsFor=/mnt/vendor/persist
 ReadOnlyPaths=/mnt/vendor/persist /persist /lib/firmware/hexagonfs /sys/devices/soc0
 EOF
 
-# 4. Configure iio-sensor-proxy systemd drop-in
-# (same filename in /etc overrides the copy shipped by nabu-tablet-mode)
-sudo mkdir -p /etc/systemd/system/iio-sensor-proxy.service.d
-sudo tee /etc/systemd/system/iio-sensor-proxy.service.d/nabu-ssc.conf << 'EOF'
-[Unit]
-Wants=hexagonrpcd.service
-After=hexagonrpcd.service
-StartLimitIntervalSec=0
-
-[Service]
-Restart=always
-RestartSec=2s
-TimeoutStopSec=2s
-RestrictAddressFamilies=AF_UNIX AF_LOCAL AF_NETLINK AF_QIPCRTR
-EOF
+# 4. The iio-sensor-proxy drop-in is shipped by the nabu-tablet-mode package
+# (/usr/lib/systemd/system/iio-sensor-proxy.service.d/nabu-ssc.conf).
+# Remove any older hand-written copy in /etc: an identically named file there
+# permanently overrides the packaged one, so package fixes would never apply.
+sudo rm -f /etc/systemd/system/iio-sensor-proxy.service.d/nabu-ssc.conf
+sudo rmdir --ignore-fail-on-non-empty /etc/systemd/system/iio-sensor-proxy.service.d 2>/dev/null || true
 
 # 5. Fix sensor udev rules (avoid ssc-light hang)
 sudo sed -i 's/ssc-accel ssc-accel ssc-light ssc-compass ssc-proximity/ssc-accel ssc-proximity/' /usr/lib/udev/rules.d/80-iio-sensor-proxy.rules 2>/dev/null || true
