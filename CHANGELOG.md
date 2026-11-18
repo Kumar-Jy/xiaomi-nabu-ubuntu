@@ -4,6 +4,18 @@ All notable changes to **Ubuntu Linux for Xiaomi Pad 5 (nabu)** are documented h
 
 ---
 
+## [Build 2026-11-18] - Kernel 7.3.5-0 & Platform Stability
+
+### ⚙️ Kernel & Platform
+- Upgraded kernel tracking to **Linux 7.3.5-0**:
+  - Saved and restored `TPIDR2_EL0` across CPU suspend to stabilize PSCI s2idle deep sleep and idle.
+  - Aligned Qualcomm WCN3990 NVM baud rate offset and restored legacy BLE advertising upon resume.
+  - Guarded DSP `q6apm`/`q6prm` callbacks during early probe to prevent audio boot races.
+  - Hardened F2FS atomic writeback and checkpoint SIT/NAT bounds.
+- Fallback kernel detection updated to 7.3.5.
+
+---
+
 ## [Build 2026-11-14] - Release Integrity
 
 ### 🔐 Download Integrity
