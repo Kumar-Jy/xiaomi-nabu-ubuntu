@@ -168,7 +168,7 @@ jobs:
           apt install -y systemd-boot-efi systemd-ukify 
           apt install -y xiaomi-nabu-alsa xiaomi-nabu-firmware
           apt install -y hexagonrpcd libssc iio-sensor-proxy
-          apt install -y nabu-tablet-mode nabu-autobrightness nabu-torch nabu-pmac
+          apt install -y nabu-tablet-mode nabu-autobrightness nabu-torch nabu-pmac camera-studio
           apt install -y iris-vaapi
           apt install -y libcamera-tools gstreamer1.0-libcamera libspa-0.2-libcamera v4l-utils || echo "WARNING: optional camera packages failed" >&2
           apt install -y gnome-software gnome-software-plugin-snap || echo "WARNING: optional gnome-software packages failed" >&2
