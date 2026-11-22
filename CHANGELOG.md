@@ -4,6 +4,17 @@ All notable changes to **Ubuntu Linux for Xiaomi Pad 5 (nabu)** are documented h
 
 ---
 
+## [Build 2026-11-22] - Kernel 7.3.5-4 & Iris VP9 Hardware Decode
+
+### ⚙️ Kernel & Platform
+- Upgraded kernel tracking to **Linux 7.3.5-4**:
+  - **Iris VPU Hardware Video Decode:** Guarded against NULL extradata in `iris_vpu_buf_done` to enable hardware VP9 video decoding (YouTube, local 1080p/2K/4K) up to 135 fps without driver or firmware crashes.
+  - **Power & Charging:** BMS evaluate direct charge before status update and gate 5s CC sticky window on active direct charge delivery (>500mA) so charger disconnect immediately reflects in sysfs and desktop status bars.
+  - **Audio & S2Idle:** Consolidated suspend-to-idle state machine, preserving low power draw during screen-off sleep.
+  - **Packaging:** Synchronized `linux-image-*` and `linux-headers-*` 7.3.5-4 packages from the `[nabu-pkgs]` APT repository.
+
+---
+
 ## [Build 2026-11-18] - Kernel 7.3.5-0 & Platform Stability
 
 ### ⚙️ Kernel & Platform

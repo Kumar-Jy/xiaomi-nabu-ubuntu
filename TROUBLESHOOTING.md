@@ -240,7 +240,7 @@ If the kernel post-install script didn't generate your UKI automatically, genera
 
 ```bash
 # 1. Identify kernel version
-KVER=$(uname -r)   # or specify the newly installed version, e.g. 7.3.5-0
+KVER=$(uname -r)   # or specify the newly installed version, e.g. 7.3.5-4
 
 # 2. Mount the ESP partition (usually /dev/sda31 or /dev/disk/by-partlabel/esp)
 sudo mkdir -p /mnt/esp
